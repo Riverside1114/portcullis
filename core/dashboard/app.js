@@ -11,6 +11,9 @@ const ui = {
   q: el("q"),
   kind: el("kind"),
   dir: el("dir"),
+  verdict: el("verdict"),
+  rules: el("rules"),
+  rulesGroup: el("rules-group"),
   detail: el("detail"),
   detailTitle: el("detail-title"),
   detailMeta: el("detail-meta"),
@@ -38,12 +41,14 @@ function filters() {
   if (ui.q.value.trim()) params.set("q", ui.q.value.trim());
   if (ui.kind.value) params.set("kind", ui.kind.value);
   if (ui.dir.value) params.set("dir", ui.dir.value);
+  if (ui.verdict.value) params.set("verdict", ui.verdict.value);
   return params;
 }
 
 function matchesFilters(record) {
   if (ui.kind.value && record.kind !== ui.kind.value) return false;
   if (ui.dir.value && record.dir !== ui.dir.value) return false;
+  if (ui.verdict.value && record.policy?.enforced !== ui.verdict.value) return false;
   const search = ui.q.value.trim().toLowerCase();
   if (search) {
     const haystack = `${record.method ?? ""} ${record.reason ?? ""}`.toLowerCase();
@@ -81,6 +86,7 @@ async function load() {
 
   state.records = page.records;
   renderTiles(stats, page);
+  renderRules(stats.rules);
   renderMethods(stats.methods);
   renderRows();
 }
@@ -99,10 +105,35 @@ function renderTiles(stats, page) {
     ["Showing", `${page.records.length.toLocaleString()} / ${page.matched.toLocaleString()}`],
   ];
 
+  // Only worth the space once a policy has actually judged something.
+  if (stats.judged > 0) {
+    tiles.splice(2, 0, ["Denied", stats.denied.toLocaleString(), stats.denied > 0 ? "bad" : ""]);
+    if (stats.asked > 0) tiles.splice(3, 0, ["Asked", stats.asked.toLocaleString(), "warn"]);
+  }
+
   ui.tiles.innerHTML = tiles
     .map(
       ([k, v, cls = ""]) =>
         `<div class="tile"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`,
+    )
+    .join("");
+}
+
+function renderRules(rules) {
+  if (!rules || rules.length === 0) {
+    ui.rulesGroup.hidden = true;
+    return;
+  }
+
+  ui.rulesGroup.hidden = false;
+  ui.rules.innerHTML = rules
+    .map(
+      (r) => `
+      <button class="method-row" data-rule="${escapeAttr(r.rule)}" type="button">
+        <span class="name" title="${escapeAttr(r.rule)}">${escapeHtml(r.rule)}</span>
+        <span class="n">${r.fired}</span>
+        <span class="p95">${r.denied > 0 ? `${r.denied} denied` : "all allowed"}</span>
+      </button>`,
     )
     .join("");
 }
@@ -150,6 +181,16 @@ function rowFor(record) {
   if (record.seq === state.selectedSeq) tr.className = "selected";
 
   const slow = record.ms !== undefined && record.ms > 1000;
+  const policy = record.policy;
+  if (policy?.enforced === "deny") tr.classList.add("denied");
+
+  const policyCell = policy
+    ? `<span class="tag ${policy.verdict === "ask" ? "ask" : policy.enforced}" title="${escapeAttr(
+        `${policy.rule ? `rule "${policy.rule}"` : "policy default"}${
+          policy.reason ? `: ${policy.reason}` : ""
+        }`,
+      )}">${policy.verdict === "ask" ? `ask/${policy.enforced}` : policy.enforced}</span>`
+    : "";
 
   tr.innerHTML = `
     <td class="c-time">${record.ts.slice(11, 23)}</td>
@@ -158,6 +199,7 @@ function rowFor(record) {
       record.method ?? record.reason ?? "(uncorrelated)",
     )}</td>
     <td><span class="tag ${record.kind}">${record.kind}</span></td>
+    <td class="c-policy">${policyCell}</td>
     <td class="c-ms ${slow ? "slow" : ""}">${record.ms === undefined ? "" : `${record.ms}ms`}</td>
     <td class="c-bytes">${formatBytes(record.bytes)}${record.truncated ? " *" : ""}</td>`;
 
@@ -184,6 +226,13 @@ function select(record) {
     ["Wire size", formatBytes(record.bytes)],
     ["Session", record.session],
   ];
+  if (record.policy) {
+    const p = record.policy;
+    meta.push(["Verdict", p.verdict === p.enforced ? p.verdict : `${p.verdict}, enforced as ${p.enforced}`]);
+    meta.push(["Rule", p.rule ?? "policy default"]);
+    if (p.reason) meta.push(["Because", p.reason]);
+    if (p.limited) meta.push(["Rate limit", "this call exceeded the rule's ceiling"]);
+  }
   if (record.reason) meta.push(["Note", record.reason]);
   if (record.truncated) meta.push(["Payload", "truncated in the log, not on the wire"]);
 
@@ -275,6 +324,14 @@ ui.methods.addEventListener("click", (event) => {
   void load();
 });
 
+ui.rules.addEventListener("click", (event) => {
+  const button = event.target.closest(".method-row");
+  if (!button) return;
+  // No server-side rule filter, so narrow to denials and let the operator scan.
+  ui.verdict.value = ui.verdict.value === "deny" ? "" : "deny";
+  void load();
+});
+
 ui.refresh.addEventListener("click", () => void load());
 ui.live.addEventListener("click", () =>
   setLive(ui.live.getAttribute("aria-pressed") !== "true"),
@@ -287,6 +344,7 @@ const reload = debounce(() => void load(), 200);
 ui.q.addEventListener("input", reload);
 ui.kind.addEventListener("change", reload);
 ui.dir.addEventListener("change", reload);
+ui.verdict.addEventListener("change", reload);
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") ui.detail.hidden = true;

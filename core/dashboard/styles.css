@@ -418,6 +418,28 @@ td {
   color: var(--warn);
 }
 
+.tag.allow {
+  color: var(--text-faint);
+}
+
+.tag.deny {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.tag.ask {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+tbody tr.denied .c-method {
+  color: var(--error);
+}
+
+.c-policy {
+  width: 1%;
+}
+
 .empty {
   padding: 28px 16px;
   color: var(--text-faint);

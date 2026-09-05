@@ -10,6 +10,9 @@ import { Session } from "./session.js";
 import { logPathFor } from "./paths.js";
 import { tail } from "./commands/tail.js";
 import { serve } from "./commands/serve.js";
+import { check } from "./commands/check.js";
+import { loadPolicy, PolicyEngine, PolicyLoadError } from "./policy/index.js";
+import type { PolicyRuntime } from "./proxy.js";
 
 const EXIT_USAGE = 64;
 const EXIT_UNAVAILABLE = 69;
@@ -36,16 +39,21 @@ USAGE
   portcullis run [options] -- <command> [args...]
   portcullis tail [server] [options]
   portcullis serve [options]
+  portcullis check <policy> [--against <json>]
 
 COMMANDS
   run      Wrap an MCP server. Everything after -- is the server command,
            exactly as you would have written it in your agent's config.
   tail     Read the audit log in the terminal. With no server, lists what exists.
   serve    Open the web dashboard on localhost.
+  check    Validate a policy file, or test one call against it.
 
 RUN OPTIONS
   --name <name>        Label for this server, and the log filename.
                        Defaults to the command.
+  --policy <file>      Enforce a policy. Without one, Portcullis only records.
+  --ask-fallback <v>   What an ask verdict becomes while no approver is
+                       connected: allow or deny. Overrides the policy file.
   --no-record          Pass traffic through without writing an audit log
   --max-payload <n>    Bytes of each payload to keep (default: ${DEFAULT_MAX_PAYLOAD_BYTES})
   --cwd <path>         Working directory for the wrapped server
@@ -54,6 +62,10 @@ TAIL OPTIONS
   -n <count>           Trailing records to show (default: 50, 0 for all)
   -f, --follow         Keep printing records as they arrive
   --json               Emit raw JSONL instead of the rendered view
+
+CHECK OPTIONS
+  --against <json>     Evaluate one call and print the verdict, instead of
+                       only validating the file
 
 SERVE OPTIONS
   --port <n>           Port to listen on (default: ${DEFAULT_PORT})
@@ -80,6 +92,11 @@ EXAMPLE
     portcullis tail filesystem
     portcullis serve
 
+  Add enforcement once you have seen what it does:
+
+    portcullis check fs.yaml
+    portcullis run --policy fs.yaml --name filesystem -- ...
+
 NOTES
   Diagnostics go to stderr. stdout carries protocol traffic and is never
   written to by Portcullis itself.
@@ -105,6 +122,9 @@ export async function main(argv: readonly string[]): Promise<number> {
       strict: true,
       options: {
         name: { type: "string" },
+        policy: { type: "string" },
+        "ask-fallback": { type: "string" },
+        against: { type: "string" },
         "no-record": { type: "boolean", default: false },
         "max-payload": { type: "string" },
         cwd: { type: "string" },
@@ -166,6 +186,21 @@ export async function main(argv: readonly string[]): Promise<number> {
         colour: process.stdout.isTTY === true,
       });
 
+    case "check": {
+      const path = positionals[1];
+      if (path === undefined) {
+        process.stderr.write("portcullis: check needs a policy file\n\n  portcullis check fs.yaml\n");
+        return EXIT_USAGE;
+      }
+      return check({
+        path,
+        against: values.against,
+        out: process.stdout,
+        err: process.stderr,
+        colour: process.stdout.isTTY === true,
+      });
+    }
+
     case "serve":
       return serve({
         port: parseCount(values.port, DEFAULT_PORT),
@@ -182,6 +217,8 @@ export async function main(argv: readonly string[]): Promise<number> {
 interface RunContext {
   values: {
     name?: string | undefined;
+    policy?: string | undefined;
+    "ask-fallback"?: string | undefined;
     "no-record"?: boolean;
     "max-payload"?: string | undefined;
     cwd?: string | undefined;
@@ -212,6 +249,37 @@ async function runCommand({ values, targetArgv, level }: RunContext): Promise<nu
 
   if (recorder) logger.info(`recording to ${recorder.path}`);
 
+  let policy: PolicyRuntime | undefined;
+  if (values.policy !== undefined) {
+    const fallback = values["ask-fallback"];
+    if (fallback !== undefined && fallback !== "allow" && fallback !== "deny") {
+      process.stderr.write("portcullis: --ask-fallback must be allow or deny\n");
+      if (recorder) await recorder.close();
+      return EXIT_USAGE;
+    }
+
+    try {
+      const loaded = await loadPolicy(values.policy);
+      policy = {
+        engine: new PolicyEngine(loaded),
+        askFallback: fallback ?? loaded.askFallback,
+      };
+      logger.info(
+        `policy ${values.policy}: ${loaded.rules.length} rules, default ${loaded.default}`,
+      );
+    } catch (error) {
+      // A policy that cannot be read has to stop the proxy. Starting without
+      // the rules the user asked for would drop their protection at the exact
+      // moment they believe it is on.
+      if (error instanceof PolicyLoadError) {
+        logger.error(error.message);
+        if (recorder) await recorder.close();
+        return EXIT_UNAVAILABLE;
+      }
+      throw error;
+    }
+  }
+
   try {
     const outcome = await runProxy({
       command,
@@ -219,6 +287,7 @@ async function runCommand({ values, targetArgv, level }: RunContext): Promise<nu
       logger,
       ...(values.cwd === undefined ? {} : { cwd: values.cwd }),
       ...(session === undefined ? {} : { session }),
+      ...(policy === undefined ? {} : { policy }),
     });
 
     if (recorder) logger.info(`recorded ${recorder.recordsWritten} messages`);

@@ -26,3 +26,40 @@ export { createObserver } from "./observer.js";
 export type { ObserverOptions } from "./observer.js";
 
 export { portcullisHome, logsDir, logPathFor, runDir, slugify } from "./paths.js";
+
+export { createGate, denialResponse, POLICY_DENIED_CODE, DEFAULT_MAX_MESSAGE_BYTES } from "./gate.js";
+export type { GateOptions, GateStream, GateAction, DenialDetails } from "./gate.js";
+
+export type { PolicyRuntime } from "./proxy.js";
+export type { PolicyOutcome } from "./recorder.js";
+
+export {
+  loadPolicy,
+  parsePolicy,
+  describeRule,
+  PolicyLoadError,
+  PolicyEngine,
+  PolicyError,
+  compilePolicy,
+  parseDuration,
+  parseYaml,
+  YamlError,
+  compilePattern,
+  compilePatterns,
+  matchesAny,
+  PatternError,
+  lookup,
+  formatDuration,
+  POLICY_SCHEMA_VERSION,
+} from "./policy/index.js";
+export type {
+  Policy,
+  Rule,
+  RateLimit,
+  ArgMatcher,
+  Verdict,
+  Decision,
+  Pattern,
+  YamlValue,
+  YamlMap,
+} from "./policy/index.js";

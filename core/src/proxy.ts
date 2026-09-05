@@ -2,7 +2,16 @@ import { spawn } from "node:child_process";
 import { constants as osConstants } from "node:os";
 import type { Logger } from "./logging.js";
 import { createObserver } from "./observer.js";
+import { createGate, denialResponse } from "./gate.js";
+import type { JsonRpcId } from "./protocol.js";
+import type { PolicyEngine } from "./policy/engine.js";
 import type { Session } from "./session.js";
+
+export interface PolicyRuntime {
+  engine: PolicyEngine;
+  /** What an ask verdict becomes while no approval front end is connected. */
+  askFallback: "allow" | "deny";
+}
 
 export interface ProxyStreams {
   stdin?: NodeJS.ReadableStream;
@@ -20,6 +29,8 @@ export interface ProxyOptions {
   shutdownGraceMs?: number;
   /** Omit to run as a plain passthrough with no recording. */
   session?: Session;
+  /** Omit to observe only. With a policy, calls can be refused. */
+  policy?: PolicyRuntime;
 }
 
 export interface ProxyOutcome {
@@ -99,35 +110,123 @@ export function runProxy(options: ProxyOptions): Promise<ProxyOutcome> {
       logger.warn("error writing to server input", error);
     });
 
-    const inbound = options.session
-      ? createObserver({
-          onLine: (line) => options.session?.observe("to-server", line),
-          onError: (error) => logger.warn("could not observe agent traffic", error),
-        })
-      : null;
+    // Three wirings, in decreasing order of transparency.
+    //
+    // Neither session nor policy: the streams are joined directly and
+    // Portcullis never holds a byte.
+    //
+    // Session only: an observer watches each direction and passes the original
+    // bytes straight through, adding no buffering and no latency.
+    //
+    // Policy: both directions are reassembled into whole messages, because a
+    // call cannot be judged from half of one, and because a denial must be
+    // injected on a message boundary rather than into the middle of one.
+    //
+    // pipe() throughout rather than data handlers, so backpressure propagates.
+    // A large tool result can outrun a slow consumer, and dropped bytes corrupt
+    // the protocol stream. end:false on the outbound side, or ending the
+    // child's stream would close the real process stdout underneath any later
+    // shutdown message.
+    let agentInSink: NodeJS.WritableStream = child.stdin;
 
-    const outbound = options.session
-      ? createObserver({
-          onLine: (line) => options.session?.observe("to-agent", line),
-          onError: (error) => logger.warn("could not observe server traffic", error),
-        })
-      : null;
+    if (options.policy) {
+      const { engine, askFallback } = options.policy;
 
-    // pipe() rather than a data handler, so backpressure propagates. A large
-    // tool result can outrun a slow consumer, and dropped bytes corrupt the
-    // protocol stream.
-    const agentInSink = inbound ?? child.stdin;
-    if (inbound) inbound.pipe(child.stdin);
-    agentIn.pipe(agentInSink);
+      const outboundGate = createGate({
+        observe: (line) => options.session?.observe("to-agent", line),
+        onError: (error) => logger.warn("could not observe server traffic", error),
+      });
+      child.stdout.pipe(outboundGate);
+      outboundGate.pipe(agentOut, { end: false });
 
-    // end:false, or ending the child's stream would close the real process
-    // stdout underneath any later shutdown message.
-    if (outbound) {
+      const refuse = (id: JsonRpcId, details: Parameters<typeof denialResponse>[1]): void => {
+        const line = denialResponse(id, details);
+        outboundGate.inject(line);
+        options.session?.observe("to-agent", line);
+      };
+
+      const inboundGate = createGate({
+        onError: (error) => logger.warn("policy evaluation failed", error),
+
+        onOversize: (id) => {
+          logger.error("a message was too large to evaluate and was refused");
+          if (id !== undefined) {
+            refuse(id, { reason: "message too large to evaluate against the policy" });
+          }
+        },
+
+        decide: (message, text) => {
+          const decision = engine.evaluate(message);
+
+          let enforced: "allow" | "deny" =
+            decision.verdict === "allow" ? "allow" : "deny";
+
+          if (decision.verdict === "ask") {
+            // The approval front end is a later milestone. Until it exists,
+            // ask resolves to the configured fallback and says so loudly
+            // rather than quietly picking one.
+            enforced = askFallback;
+            logger.warn(
+              `rule "${decision.rule ?? "?"}" wants approval but no approver is connected, ` +
+                `falling back to ${enforced}`,
+            );
+          }
+
+          options.session?.observe("to-server", text, {
+            verdict: decision.verdict,
+            enforced,
+            ...(decision.rule === undefined ? {} : { rule: decision.rule }),
+            ...(decision.reason === undefined ? {} : { reason: decision.reason }),
+            ...(decision.limited ? { limited: true } : {}),
+          });
+
+          if (enforced === "allow") return "forward";
+
+          if (message.kind === "request") {
+            logger.info(
+              `denied ${message.method}${decision.rule ? ` by rule "${decision.rule}"` : ""}`,
+            );
+            refuse(message.id, {
+              rule: decision.rule,
+              reason: decision.reason,
+              method: message.method,
+              limited: decision.limited,
+            });
+          } else {
+            // Only requests can be denied, so this is unreachable unless the
+            // engine changes. Fail visible rather than dropping silently.
+            logger.error(`policy tried to deny a ${message.kind}, which cannot be answered`);
+            return "forward";
+          }
+
+          return "drop";
+        },
+      });
+
+      inboundGate.pipe(child.stdin);
+      agentIn.pipe(inboundGate);
+      agentInSink = inboundGate;
+    } else if (options.session) {
+      const inbound = createObserver({
+        onLine: (line) => options.session?.observe("to-server", line),
+        onError: (error) => logger.warn("could not observe agent traffic", error),
+      });
+      const outbound = createObserver({
+        onLine: (line) => options.session?.observe("to-agent", line),
+        onError: (error) => logger.warn("could not observe server traffic", error),
+      });
+
+      inbound.pipe(child.stdin);
+      agentIn.pipe(inbound);
+      agentInSink = inbound;
+
       child.stdout.pipe(outbound);
       outbound.pipe(agentOut, { end: false });
     } else {
+      agentIn.pipe(child.stdin);
       child.stdout.pipe(agentOut, { end: false });
     }
+
     child.stderr.pipe(agentErr, { end: false });
 
     for (const signal of FORWARDED_SIGNALS) {

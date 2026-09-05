@@ -1,12 +1,23 @@
 import { createWriteStream, type WriteStream } from "node:fs";
 import { dirname } from "node:path";
 import type { JsonRpcError, JsonRpcId, MessageKind } from "./protocol.js";
+import type { Verdict } from "./policy/schema.js";
 import type { Logger } from "./logging.js";
 import { ensureDir } from "./paths.js";
 
 export type Direction = "to-server" | "to-agent";
 
 export const AUDIT_SCHEMA_VERSION = 1;
+
+export interface PolicyOutcome {
+  /** What the policy decided. */
+  verdict: Verdict;
+  /** What actually happened. Differs from verdict when ask has no approver. */
+  enforced: "allow" | "deny";
+  rule?: string;
+  reason?: string;
+  limited?: boolean;
+}
 
 export interface AuditRecord {
   v: number;
@@ -28,6 +39,8 @@ export interface AuditRecord {
   bytes: number;
   truncated?: boolean;
   reason?: string;
+  /** Present when a policy was active and judged this message. */
+  policy?: PolicyOutcome;
 }
 
 export const DEFAULT_MAX_PAYLOAD_BYTES = 32 * 1024;

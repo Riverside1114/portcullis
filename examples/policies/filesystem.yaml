@@ -1,0 +1,79 @@
+# A starting policy for @modelcontextprotocol/server-filesystem.
+#
+# Validate it before use:      portcullis check filesystem.yaml
+# Test one call against it:    portcullis check filesystem.yaml --against '{"method":"tools/call","params":{"name":"read_file","arguments":{"path":"/home/me/.env"}}}'
+
+version: 1
+
+# Everything not matched below is allowed. Start here while you learn what your
+# agent actually does, then tighten to deny once the log has shown you.
+default: allow
+
+# An ask verdict needs an approval front end, which does not exist yet.
+# Until it does, ask resolves to this.
+ask_fallback: deny
+
+rules:
+  # Credentials and keys. These are read by an agent far more often than people
+  # expect, usually while it is looking for configuration.
+  - name: no credential files
+    action: deny
+    reason: credential and key files are off limits
+    match:
+      args:
+        path:
+          - "**/.env"
+          - "**/.env.*"
+          - "**/.npmrc"
+          - "**/.netrc"
+          - "**/.aws/**"
+          - "**/.ssh/**"
+          - "**/id_rsa*"
+          - "**/id_ed25519*"
+          - "**/*.pem"
+          - "**/*.key"
+          - "**/*.pfx"
+
+  # Version control internals. Reading .git/config leaks remotes and tokens;
+  # writing into .git can rewrite history.
+  - name: no git internals
+    action: deny
+    reason: the .git directory is not a normal file tree
+    match:
+      args:
+        path: "**/.git/**"
+
+  # Writes are the operations you cannot undo. Confine them to one tree.
+  - name: writes stay in the project
+    action: deny
+    reason: writes are limited to /home/me/project
+    match:
+      tool:
+        - write_file
+        - edit_file
+        - move_file
+        - create_directory
+      args:
+        path: "!/home/me/project/**"
+
+  # Deletion deserves a human even inside the project. While no approver is
+  # connected this denies, per ask_fallback above.
+  - name: deletion needs approval
+    action: ask
+    reason: deleting files is not reversible
+    match:
+      tool:
+        - delete_file
+        - remove_directory
+
+  # A runaway loop reading the filesystem is a real failure mode, and an
+  # expensive one. This is a ceiling, not a target.
+  - name: reading has a ceiling
+    action: allow
+    match:
+      tool:
+        - read_file
+        - read_multiple_files
+    limit:
+      calls: 300
+      per: 1m

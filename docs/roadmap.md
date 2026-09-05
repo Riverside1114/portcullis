@@ -56,20 +56,20 @@ it, and because it needs nothing the policy engine has not built yet.
 - [x] Single-page UI with no framework and no build step
 - [x] Per-method p50 and p95 latency, error rates, filtering, payload detail
 
-## M4, The policy engine `[~]`
+## M4, The policy engine `[x]`
 
 Rules. A YAML file describing which calls are allowed, which are refused, and
 which need a human.
 
-- [ ] Policy schema: match on tool name, argument paths, glob and regex
-- [ ] Verdicts: `allow`, `deny`, `ask`
-- [ ] Denials returned as valid JSON-RPC errors the model can read and recover from
-- [ ] Rate limits per tool
-- [ ] `portcullis check <policy>`, validate a policy without running anything
-- [ ] Verdicts surfaced in the dashboard
-- [ ] Starter policies in `examples/policies/`
+- [x] Policy schema: match on tool name, argument paths, glob and regex
+- [x] Verdicts: `allow`, `deny`, `ask`
+- [x] Denials returned as valid JSON-RPC errors the model can read and recover from
+- [x] Rate limits per tool
+- [x] `portcullis check <policy>`, validate a policy, or test one call with `--against`
+- [x] Verdicts surfaced in the dashboard
+- [x] Starter policies in `examples/policies/`
 
-## M5, The analyzer `[ ]`
+## M5, The analyzer `[~]`
 
 The Python sidecar. Inspects results on the way back to the model.
 

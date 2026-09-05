@@ -45,10 +45,22 @@ The dashboard gives a live call feed, per-method p50 and p95 latency, error
 rates, filtering by method, kind and direction, and the full payload of any
 record. It binds to localhost only.
 
+## Enforce a policy
+
+```sh
+portcullis check fs.yaml
+portcullis run --policy fs.yaml --name filesystem -- npx -y @modelcontextprotocol/server-filesystem /home/me
+```
+
+A denied call never reaches the server; the agent gets a JSON-RPC error in its
+place. A policy that does not compile stops the proxy rather than starting it
+unprotected. Syntax:
+[docs/policy.md](https://github.com/Riverside1114/portcullis/blob/main/docs/policy.md).
+
 ## Current state
 
-v0.1: a faithful passthrough, a correlated audit log, and the dashboard. Policy
-enforcement is next, see
+v0.2: a faithful passthrough, a correlated audit log, the dashboard, and policy
+enforcement. Result inspection for secrets and prompt injection is next, see
 [the roadmap](https://github.com/Riverside1114/portcullis/blob/main/docs/roadmap.md).
 
 ## Options
@@ -56,6 +68,8 @@ enforcement is next, see
 ```
 run
   --name <name>        Label for this server, and the log filename
+  --policy <file>      Enforce a policy. Without one, Portcullis only records
+  --ask-fallback <v>   What ask becomes with no approver: allow or deny
   --no-record          Pass traffic through without writing an audit log
   --max-payload <n>    Bytes of each payload to keep (default: 32768)
   --cwd <path>         Working directory for the wrapped server
@@ -64,6 +78,9 @@ tail [server]
   -n <count>           Trailing records to show (default: 50, 0 for all)
   -f, --follow         Keep printing records as they arrive
   --json               Emit raw JSONL instead of the rendered view
+
+check <policy>
+  --against <json>     Evaluate one call and print the verdict
 
 serve
   --port <n>           Port to listen on (default: 7717)

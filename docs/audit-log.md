@@ -53,6 +53,7 @@ already written, and several proxies can write to the same directory at once.
 | `ms` | number | correlated replies | Milliseconds from request to reply. |
 | `truncated` | boolean | when clamped | A payload did not fit. |
 | `reason` | string | malformed, uncorrelated | Why. |
+| `policy` | object | when a policy judged the call | See below. |
 
 ### Why `seq` exists alongside `ts`
 
@@ -107,6 +108,30 @@ marker that keeps the head and the true size:
 **Truncation applies only to the log.** The traffic itself is never altered.
 `bytes` always reports what actually crossed the wire, so a truncated record
 still tells you the real size of what the agent received.
+
+### Policy verdicts
+
+When a policy is active, every judged call carries what the policy decided and
+what actually happened:
+
+```json
+"policy": {
+  "verdict": "ask",
+  "enforced": "deny",
+  "rule": "deletion needs approval",
+  "reason": "deleting files is not reversible"
+}
+```
+
+`verdict` is what the rule said, `enforced` is what was done. They differ only
+for `ask`, which resolves to the configured fallback while no approval front end
+is connected. Keeping both means the log shows the intent as well as the
+outcome. `limited: true` marks a denial that came from a rate limit rather than
+the rule's action.
+
+A denied call is recorded on the way in even though it never reached the server,
+and the error sent back in its place is recorded as inbound traffic, so the log
+shows both halves of the exchange.
 
 ### Malformed messages
 

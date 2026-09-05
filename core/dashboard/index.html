@@ -58,6 +58,19 @@
               <option value="to-agent">to agent</option>
             </select>
           </label>
+          <label class="field">
+            <span>Verdict</span>
+            <select id="verdict">
+              <option value="">any</option>
+              <option value="allow">allowed</option>
+              <option value="deny">denied</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="group" id="rules-group" hidden>
+          <h2>Rules fired</h2>
+          <div id="rules" class="methods"></div>
         </div>
 
         <div class="group">
@@ -75,6 +88,7 @@
                 <th class="c-dir"></th>
                 <th class="c-method">Method</th>
                 <th class="c-kind">Kind</th>
+                <th class="c-policy">Policy</th>
                 <th class="c-ms">Duration</th>
                 <th class="c-bytes">Size</th>
               </tr>

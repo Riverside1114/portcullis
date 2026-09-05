@@ -119,6 +119,54 @@ drawer showing the full payload of any record. No framework, no build step, no
 network access. It binds to localhost only, because the log holds file contents
 and API responses your agent saw.
 
+## Stop what you did not agree to
+
+Recording tells you what happened. A policy decides what is allowed to.
+
+```yaml
+version: 1
+default: allow
+
+rules:
+  - name: no credential files
+    action: deny
+    reason: credential files are off limits
+    match:
+      args:
+        path: ["**/.env", "**/.ssh/**", "**/*.pem"]
+
+  - name: writes stay in the project
+    action: deny
+    match:
+      tool: [write_file, edit_file]
+      args:
+        path: "!/home/me/project/**"
+```
+
+```sh
+portcullis check fs.yaml
+portcullis run --policy fs.yaml --name filesystem -- npx -y @modelcontextprotocol/server-filesystem /home/me
+```
+
+A denied call never reaches the server. The agent gets a JSON-RPC error in its
+place, worded so the model looks for another route instead of retrying:
+
+```
+Blocked by Portcullis policy "no credential files": credential files are off
+limits. This call was not sent to the server. Do not retry it unchanged.
+```
+
+A policy that does not compile stops the proxy rather than starting it
+unprotected. Test one before you deploy it:
+
+```sh
+portcullis check fs.yaml --against '{"method":"tools/call","params":{"name":"read_file","arguments":{"path":"/home/me/.env"}}}'
+deny by rule "no credential files": credential files are off limits
+```
+
+Full syntax in [docs/policy.md](docs/policy.md), starting points in
+[examples/policies](examples/policies).
+
 ## Design rules
 
 These are load-bearing. Everything in the roadmap is checked against them.
@@ -143,8 +191,8 @@ Early, and built in public in layers. See [the roadmap](docs/roadmap.md).
 |-------|----------|-------|
 | `core/` proxy and recorder | TypeScript | working |
 | `core/dashboard/` web UI | HTML, CSS, JS | working |
-| policy engine | TypeScript | next |
-| `analyzer/` detection rules | Python | planned |
+| policy engine | TypeScript | working |
+| `analyzer/` detection rules | Python | next |
 | `collector/` log index for large archives | Go | planned |
 | `desktop/` tray app and live approvals | C# and WPF | planned |
 
@@ -154,6 +202,7 @@ The core never depends on the others.
 
 ## Documentation
 
+- [Policy](docs/policy.md), the rule syntax and what the model sees
 - [Architecture](docs/architecture.md), how the pieces fit and why
 - [Audit log format](docs/audit-log.md), a stable contract other tools can read
 - [Roadmap](docs/roadmap.md)

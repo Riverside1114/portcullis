@@ -170,6 +170,7 @@ async function queryLog(name: string, params: URLSearchParams): Promise<LogPage>
 
   const kind = params.get("kind");
   const dir = params.get("dir");
+  const verdict = params.get("verdict");
   const search = params.get("q")?.toLowerCase();
   const session = params.get("session");
   const limit = clampInt(params.get("limit"), 200, 1, 5000);
@@ -177,6 +178,7 @@ async function queryLog(name: string, params: URLSearchParams): Promise<LogPage>
   const matched = all.filter((record) => {
     if (kind && record.kind !== kind) return false;
     if (dir && record.dir !== dir) return false;
+    if (verdict && record.policy?.enforced !== verdict) return false;
     if (session && record.session !== session) return false;
     if (search) {
       const haystack = `${record.method ?? ""} ${record.reason ?? ""}`.toLowerCase();
@@ -200,6 +202,12 @@ interface MethodStat {
   p95: number;
 }
 
+interface RuleStat {
+  rule: string;
+  fired: number;
+  denied: number;
+}
+
 interface Stats {
   total: number;
   calls: number;
@@ -208,9 +216,13 @@ interface Stats {
   bytes: number;
   sessions: number;
   truncated: number;
+  denied: number;
+  asked: number;
+  judged: number;
   firstSeen: string | null;
   lastSeen: string | null;
   methods: MethodStat[];
+  rules: RuleStat[];
 }
 
 async function computeStats(name: string): Promise<Stats> {
@@ -221,10 +233,16 @@ async function computeStats(name: string): Promise<Stats> {
   const calls = new Map<string, number>();
   const sessions = new Set<string>();
 
+  const ruleFired = new Map<string, number>();
+  const ruleDenied = new Map<string, number>();
+
   let errorCount = 0;
   let malformed = 0;
   let truncated = 0;
   let bytes = 0;
+  let denied = 0;
+  let asked = 0;
+  let judged = 0;
 
   for (const record of records) {
     sessions.add(record.session);
@@ -234,6 +252,19 @@ async function computeStats(name: string): Promise<Stats> {
 
     if (record.kind === "request" && record.method) {
       calls.set(record.method, (calls.get(record.method) ?? 0) + 1);
+    }
+
+    if (record.policy) {
+      judged += 1;
+      if (record.policy.enforced === "deny") denied += 1;
+      if (record.policy.verdict === "ask") asked += 1;
+      const rule = record.policy.rule;
+      if (rule) {
+        ruleFired.set(rule, (ruleFired.get(rule) ?? 0) + 1);
+        if (record.policy.enforced === "deny") {
+          ruleDenied.set(rule, (ruleDenied.get(rule) ?? 0) + 1);
+        }
+      }
     }
 
     if (record.kind === "error") {
@@ -261,6 +292,10 @@ async function computeStats(name: string): Promise<Stats> {
     })
     .sort((a, b) => b.calls - a.calls);
 
+  const rules: RuleStat[] = [...ruleFired.entries()]
+    .map(([rule, fired]) => ({ rule, fired, denied: ruleDenied.get(rule) ?? 0 }))
+    .sort((a, b) => b.fired - a.fired);
+
   return {
     total: records.length,
     calls: [...calls.values()].reduce((sum, n) => sum + n, 0),
@@ -269,6 +304,10 @@ async function computeStats(name: string): Promise<Stats> {
     bytes,
     sessions: sessions.size,
     truncated,
+    denied,
+    asked,
+    judged,
+    rules,
     firstSeen: records[0]?.ts ?? null,
     lastSeen: records[records.length - 1]?.ts ?? null,
     methods,

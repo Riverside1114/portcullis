@@ -1,0 +1,39 @@
+# The strictest useful shape: the agent may look, but not touch.
+#
+# Good for wrapping a server you do not fully trust, or for a first session
+# with a new one while you watch the log.
+
+version: 1
+default: deny
+ask_fallback: deny
+
+rules:
+  # Handshake and discovery. Without these the server never comes up.
+  - name: protocol handshake
+    action: allow
+    match:
+      method:
+        - initialize
+        - "notifications/*"
+        - ping
+
+  - name: discovery
+    action: allow
+    match:
+      method:
+        - "tools/list"
+        - "resources/list"
+        - "resources/templates/list"
+        - "prompts/list"
+
+  # Reads only, by convention on tool naming. Check this against the tool names
+  # your server actually exposes: portcullis check read-only.yaml --against ...
+  - name: reads only
+    action: allow
+    match:
+      method: "tools/call"
+      tool:
+        - "read_*"
+        - "get_*"
+        - "list_*"
+        - "search_*"
