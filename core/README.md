@@ -9,6 +9,9 @@ firewall and flight recorder for AI tool calls.
 npm install -g portcullis-mcp
 ```
 
+If your shell then reports `portcullis: command not found`, npm's global bin
+directory is not on your PATH. `npm prefix -g` prints where it put the command.
+
 ## Use
 
 Take the MCP server entry in your agent's config:

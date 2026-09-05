@@ -1,6 +1,6 @@
 {
   "name": "portcullis-mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A firewall and flight recorder for AI tool calls. Proxies MCP traffic, records it, and enforces policy.",
   "keywords": [
     "mcp",

@@ -71,6 +71,32 @@ finished before the next begins, with no half-built layers stacked on other
 half-built layers. If you want to start on something further down the list,
 open an issue first so the layer beneath it can be shaped to fit.
 
+## Releasing
+
+Releases publish themselves. Cutting a GitHub release runs the workflow in
+`.github/workflows/release.yml`, which builds, runs the full suite, checks the
+tag against `core/package.json`, and publishes to npm with provenance.
+
+Provenance is the point of doing it this way. npm exchanges a short lived OIDC
+token for a signed attestation binding the published tarball to the exact commit
+and workflow that produced it, and shows a verified badge on the package page.
+For a project about supply chain trust, being able to prove where its own build
+came from is worth more than the convenience.
+
+To cut one:
+
+1. Bump `version` in `core/package.json`.
+2. Commit, and tag it `vX.Y.Z` matching that version. A mismatch fails the
+   workflow before anything is published.
+3. Push the tag and create the release on GitHub.
+
+The repository needs an `NPM_TOKEN` secret holding an npm **automation** token.
+Automation tokens are the ones that work from CI with 2FA enabled on the
+account; a normal token will be rejected.
+
+Nothing is published by hand. A local `npm publish` produces no provenance and
+skips the tag check.
+
 ## Security
 
 Do not open a public issue for a vulnerability. See [SECURITY.md](SECURITY.md).
