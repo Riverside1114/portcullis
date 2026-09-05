@@ -38,6 +38,11 @@ obj/
 /collector/collector
 /collector/collector.exe
 
+# ---- Promo build output ----
+# Rendered video and screenshots are rebuilt from the real tool on demand.
+# Only docs/assets/demo.gif is committed, because the README needs it.
+promo/out/
+
 # ---- Portcullis runtime data ----
 # Audit logs contain real tool traffic. They must never be committed.
 *.portcullis.jsonl

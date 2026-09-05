@@ -14,6 +14,8 @@ the ones you never agreed to.
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Status: early](https://img.shields.io/badge/status-early%20development-orange.svg)](docs/roadmap.md)
 
+<img src="docs/assets/demo.gif" alt="Portcullis checking a policy, wrapping a server, and blocking a call that tried to read a credential file" width="900">
+
 </div>
 
 ---

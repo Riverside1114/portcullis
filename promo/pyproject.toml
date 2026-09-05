@@ -1,0 +1,22 @@
+[project]
+name = "portcullis-promo"
+version = "0.1.0"
+description = "Builds the demo GIF and narrated explainer for Portcullis from the real tool."
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "Pillow>=10.0",
+  "numpy>=1.24",
+  "playwright>=1.40",
+  "edge-tts>=7.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Riverside1114/portcullis"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["portcullis_promo"]
