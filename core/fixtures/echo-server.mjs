@@ -47,4 +47,6 @@ rl.on("line", (line) => {
   });
 });
 
-rl.on("close", () => process.exit(0));
+// No process.exit() here. A large reply may still be draining into the pipe,
+// and exiting would truncate it. With stdin closed and nothing else pending,
+// the loop ends on its own once the write completes.
