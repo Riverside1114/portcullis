@@ -27,6 +27,10 @@ rl.on("line", (line) => {
     return;
   }
 
+  // A notification has no id and must never be answered. Replying would emit a
+  // message with neither a method nor an id, which is not valid JSON-RPC.
+  if (!("id" in request)) return;
+
   if (request.method === "quit") {
     const code = request.params?.code ?? 0;
     process.stdout.write(

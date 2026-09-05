@@ -30,21 +30,21 @@ way. No parsing, no policy. Success is measured by an agent not noticing.
 - [x] Clean shutdown when either side closes
 - [x] `--verbose` diagnostics on stderr (stdout is protocol traffic and is sacred)
 
-## M2 — The flight recorder `[~]`
+## M2 — The flight recorder `[x]`
 
 Now it understands what it is carrying. Frames are parsed as JSON-RPC, requests
 are correlated to responses, and both are written to an append-only log.
 
-- [ ] Line-delimited JSON-RPC framing with partial-chunk buffering
-- [ ] Request/response correlation by `id`, carrying method and duration
-- [ ] Append-only JSONL writer at `~/.portcullis/logs/<server>.jsonl`
-- [ ] Detection of in-flight calls that never return
-- [ ] `portcullis tail` — read the log back in the terminal
+- [x] Line-delimited JSON-RPC framing with partial-chunk buffering
+- [x] Request/response correlation by `id`, carrying method and duration
+- [x] Append-only JSONL writer at `~/.portcullis/logs/<server>.jsonl`
+- [x] Detection of in-flight calls that never return
+- [x] `portcullis tail` — read the log back in the terminal
 
 **This is the first genuinely valuable release.** Everything after it is
 enforcement; this is the part that means you can answer "what did it do?"
 
-## M3 — The policy engine `[ ]`
+## M3 — The policy engine `[~]`
 
 Rules. A YAML file describing which calls are allowed, which are refused, and
 which need a human.

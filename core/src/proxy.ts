@@ -16,6 +16,8 @@
 import { spawn } from "node:child_process";
 import { constants as osConstants } from "node:os";
 import type { Logger } from "./logging.js";
+import { createObserver } from "./observer.js";
+import type { Session } from "./session.js";
 
 export interface ProxyStreams {
   /** Traffic arriving from the agent. Defaults to this process's stdin. */
@@ -37,6 +39,14 @@ export interface ProxyOptions {
   cwd?: string;
   /** Grace period between SIGTERM and SIGKILL during shutdown. */
   shutdownGraceMs?: number;
+  /**
+   * When present, traffic is observed and recorded as it passes.
+   *
+   * Optional on purpose. A proxy with no session is exactly the M1 passthrough,
+   * and that remains the fallback if recording ever cannot be set up — carrying
+   * the traffic matters more than logging it.
+   */
+  session?: Session;
 }
 
 export interface ProxyOutcome {
@@ -135,11 +145,39 @@ export function runProxy(options: ProxyOptions): Promise<ProxyOutcome> {
       logger.warn("error writing to server input", error);
     });
 
-    agentIn.pipe(child.stdin);
+    // With a session, an observer is spliced into each direction. It passes the
+    // original bytes through untouched and reports complete messages on the
+    // side; without one, the streams are joined directly and this is the plain
+    // M1 passthrough.
+    const inbound = options.session
+      ? createObserver({
+          onLine: (line) => options.session?.observe("to-server", line),
+          onError: (error) => logger.warn("could not observe agent traffic", error),
+        })
+      : null;
+
+    const outbound = options.session
+      ? createObserver({
+          onLine: (line) => options.session?.observe("to-agent", line),
+          onError: (error) => logger.warn("could not observe server traffic", error),
+        })
+      : null;
+
+    // What the agent's input is piped into — the observer, or the child directly.
+    const agentInSink = inbound ?? child.stdin;
+    if (inbound) inbound.pipe(child.stdin);
+    agentIn.pipe(agentInSink);
 
     // `end: false` because these are the real process streams. Ending them would
     // close the agent's channel out from under any later shutdown message.
-    child.stdout.pipe(agentOut, { end: false });
+    if (outbound) {
+      child.stdout.pipe(outbound);
+      outbound.pipe(agentOut, { end: false });
+    } else {
+      child.stdout.pipe(agentOut, { end: false });
+    }
+
+    // Server diagnostics are never protocol traffic, so they are forwarded raw.
     child.stderr.pipe(agentErr, { end: false });
 
     // ---- Signals ----------------------------------------------------------
@@ -178,8 +216,18 @@ export function runProxy(options: ProxyOptions): Promise<ProxyOutcome> {
       cleanup();
 
       // Stop pulling from the agent now that there is nowhere to put it.
-      agentIn.unpipe(child.stdin);
+      agentIn.unpipe(agentInSink);
       if (agentIn === process.stdin) process.stdin.pause();
+
+      // Report calls the server accepted but never answered. An agent hides
+      // this failure — the model simply waits forever — so the log is the only
+      // place it becomes visible.
+      const stranded = options.session?.unanswered() ?? [];
+      for (const call of stranded) {
+        logger.warn(
+          `server never answered ${call.method} (id ${String(call.id)}) after ${call.ageMs}ms`,
+        );
+      }
 
       const outcome: ProxyOutcome = { code: exitCodeFor(code, signal), signal };
       logger.info(

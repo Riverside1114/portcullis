@@ -13,8 +13,12 @@ import { parseArgs } from "node:util";
 import { readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
-import { createLogger, isLogLevel, LOG_LEVELS, type LogLevel } from "./logging.js";
+import { createLogger, isLogLevel, LOG_LEVELS, type Logger, type LogLevel } from "./logging.js";
 import { runProxy, ServerLaunchError } from "./proxy.js";
+import { Recorder, DEFAULT_MAX_PAYLOAD_BYTES } from "./recorder.js";
+import { Session } from "./session.js";
+import { logPathFor } from "./paths.js";
+import { tail } from "./commands/tail.js";
 
 const EXIT_USAGE = 64; // sysexits.h EX_USAGE
 const EXIT_UNAVAILABLE = 69; // sysexits.h EX_UNAVAILABLE
@@ -38,16 +42,29 @@ const HELP = `portcullis — a firewall and flight recorder for AI tool calls
 
 USAGE
   portcullis run [options] -- <command> [args...]
+  portcullis tail [server] [options]
 
-  Everything after -- is the MCP server to wrap, exactly as you would have
-  written it in your agent's config.
+COMMANDS
+  run      Wrap an MCP server. Everything after -- is the server command,
+           exactly as you would have written it in your agent's config.
+  tail     Read the audit log back. With no server name, lists what exists.
 
-OPTIONS
-  --name <name>        Label for this server in logs. Defaults to the command.
+RUN OPTIONS
+  --name <name>        Label for this server, and the log filename.
+                       Defaults to the command.
+  --no-record          Pass traffic through without writing an audit log
+  --max-payload <n>    Bytes of each payload to keep (default: ${DEFAULT_MAX_PAYLOAD_BYTES})
+  --cwd <path>         Working directory for the wrapped server
   --log-level <level>  ${LOG_LEVELS.join(" | ")}   (default: info)
   --verbose            Shorthand for --log-level debug
   --quiet              Shorthand for --log-level error
-  --cwd <path>         Working directory for the wrapped server
+
+TAIL OPTIONS
+  -n <count>           Number of trailing records to show (default: 50, 0 = all)
+  -f, --follow         Keep printing records as they arrive
+  --json               Emit raw JSONL instead of the rendered view
+
+GLOBAL
   -h, --help           Show this help
   -v, --version        Show the version
 
@@ -60,9 +77,15 @@ EXAMPLE
                "npx", "-y", "@modelcontextprotocol/server-filesystem", "/home/me"]
     }
 
+  Then see what it did:
+
+    portcullis tail filesystem
+
 NOTES
   Diagnostics are written to stderr. stdout carries protocol traffic and is
   never written to by Portcullis itself.
+
+  Logs live under ~/.portcullis/logs and never leave the machine.
 
   Full documentation: https://github.com/Riverside1114/portcullis
 `;
@@ -82,10 +105,15 @@ export async function main(argv: readonly string[]): Promise<number> {
       strict: true,
       options: {
         name: { type: "string" },
+        "no-record": { type: "boolean", default: false },
+        "max-payload": { type: "string" },
+        cwd: { type: "string" },
         "log-level": { type: "string" },
         verbose: { type: "boolean", default: false },
         quiet: { type: "boolean", default: false },
-        cwd: { type: "string" },
+        n: { type: "string" },
+        follow: { type: "boolean", short: "f", default: false },
+        json: { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
         version: { type: "boolean", short: "v", default: false },
       },
@@ -111,20 +139,47 @@ export async function main(argv: readonly string[]): Promise<number> {
     process.stderr.write(HELP);
     return EXIT_USAGE;
   }
-  if (subcommand !== "run") {
-    process.stderr.write(`portcullis: unknown command "${subcommand}"\n\n${HELP}`);
-    return EXIT_USAGE;
-  }
 
   const level = resolveLogLevel(values);
   if (level === null) {
     process.stderr.write(
-      `portcullis: invalid --log-level "${values["log-level"]}" ` +
+      `portcullis: invalid --log-level "${String(values["log-level"])}" ` +
         `(expected one of: ${LOG_LEVELS.join(", ")})\n`,
     );
     return EXIT_USAGE;
   }
 
+  switch (subcommand) {
+    case "run":
+      return runCommand({ values, targetArgv, level });
+    case "tail":
+      return tail({
+        server: positionals[1],
+        count: parseCount(values.n, 50),
+        follow: values.follow ?? false,
+        json: values.json ?? false,
+        out: process.stdout,
+        err: process.stderr,
+        colour: process.stdout.isTTY === true,
+      });
+    default:
+      process.stderr.write(`portcullis: unknown command "${subcommand}"\n\n${HELP}`);
+      return EXIT_USAGE;
+  }
+}
+
+interface RunContext {
+  values: {
+    name?: string | undefined;
+    "no-record"?: boolean;
+    "max-payload"?: string | undefined;
+    cwd?: string | undefined;
+  };
+  targetArgv: readonly string[];
+  level: LogLevel;
+}
+
+async function runCommand({ values, targetArgv, level }: RunContext): Promise<number> {
   const command = targetArgv[0];
   if (command === undefined) {
     process.stderr.write(
@@ -135,7 +190,18 @@ export async function main(argv: readonly string[]): Promise<number> {
     return EXIT_USAGE;
   }
 
-  const logger = createLogger({ level, scope: values.name ?? basename(command) });
+  const name = values.name ?? basename(command);
+  const logger = createLogger({ level, scope: name });
+
+  const maxPayloadBytes = parseCount(values["max-payload"], DEFAULT_MAX_PAYLOAD_BYTES);
+
+  // Recording is best-effort by design. If the log cannot be opened — read-only
+  // home directory, full disk — Portcullis degrades to the M1 passthrough and
+  // says so, rather than refusing to start and taking the agent down with it.
+  const recorder = values["no-record"] ? null : await openRecorder(name, maxPayloadBytes, logger);
+  const session = recorder ? new Session({ server: name, recorder, logger }) : undefined;
+
+  if (recorder) logger.info(`recording to ${recorder.path}`);
 
   try {
     const outcome = await runProxy({
@@ -143,7 +209,10 @@ export async function main(argv: readonly string[]): Promise<number> {
       args: targetArgv.slice(1),
       logger,
       ...(values.cwd === undefined ? {} : { cwd: values.cwd }),
+      ...(session === undefined ? {} : { session }),
     });
+
+    if (recorder) logger.info(`recorded ${recorder.recordsWritten} messages`);
     return outcome.code;
   } catch (error) {
     if (error instanceof ServerLaunchError) {
@@ -152,6 +221,23 @@ export async function main(argv: readonly string[]): Promise<number> {
     }
     logger.error("unexpected failure", error);
     return 1;
+  } finally {
+    // Flush before the process is allowed to end, or the tail of the session is
+    // lost exactly when something has gone wrong and the log matters most.
+    if (recorder) await recorder.close();
+  }
+}
+
+async function openRecorder(
+  name: string,
+  maxPayloadBytes: number,
+  logger: Logger,
+): Promise<Recorder | null> {
+  try {
+    return await Recorder.open({ path: logPathFor(name), logger, maxPayloadBytes });
+  } catch (error) {
+    logger.warn("could not open the audit log, continuing without recording", error);
+    return null;
   }
 }
 
@@ -169,8 +255,14 @@ function resolveLogLevel(values: {
   return "info";
 }
 
+function parseCount(raw: string | undefined, fallback: number): number {
+  if (raw === undefined) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 function basename(command: string): string {
-  const parts = command.split(/[\/]/);
+  const parts = command.split(/[\\/]/);
   return parts[parts.length - 1] ?? command;
 }
 

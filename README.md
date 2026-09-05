@@ -80,7 +80,7 @@ See [the roadmap](docs/roadmap.md) for what exists and what is next.
 
 | Layer | Language | State |
 |-------|----------|-------|
-| `core/` — the proxy | TypeScript | passthrough working |
+| `core/` — the proxy | TypeScript | recording works |
 | `analyzer/` — detection rules | Python | planned |
 | `collector/` — log query daemon | Go | planned |
 | `dashboard/` — log viewer | HTML/CSS/JS | planned |
@@ -89,6 +89,22 @@ See [the roadmap](docs/roadmap.md) for what exists and what is next.
 Why several languages? Each layer is a genuinely different job, and the split
 is explained in [docs/architecture.md](docs/architecture.md#why-this-is-polyglot).
 The core never depends on the others.
+
+## The log
+
+Once Portcullis is in the path, every call is on disk in a format meant to be
+read by other tools — see [docs/audit-log.md](docs/audit-log.md).
+
+```
+$ portcullis tail filesystem
+12:46:26.481  -->  initialize                 call             88 B
+12:46:26.482  -->  tools/call                 call            111 B
+12:46:26.557  <--  initialize                 ok             75ms     97 B
+12:46:26.558  <--  tools/call                 ok             76ms    120 B
+```
+
+A response line carries the method that produced it and how long it took, which
+the raw protocol does not — a JSON-RPC reply contains only an id.
 
 ## License
 
