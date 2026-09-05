@@ -14,7 +14,7 @@ import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { runProxy, ServerLaunchError, createLogger } from "../dist/index.js";
 
-const FIXTURE = fileURLToPath(new URL("./fixtures/echo-server.mjs", import.meta.url));
+const FIXTURE = fileURLToPath(new URL("../fixtures/echo-server.mjs", import.meta.url));
 const silent = createLogger({ level: "silent" });
 
 /** Runs the fixture server behind the proxy with streams a test can drive. */

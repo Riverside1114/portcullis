@@ -37,7 +37,7 @@ Try it against the test fixture, which is a small stand-in MCP server:
 
 ```sh
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
-  | node dist/cli.js run --name scratch -- node test/fixtures/echo-server.mjs
+  | node dist/cli.js run --name scratch -- node fixtures/echo-server.mjs
 portcullis tail scratch
 ```
 

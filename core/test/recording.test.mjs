@@ -22,7 +22,7 @@ import {
   slugify,
 } from "../dist/index.js";
 
-const FIXTURE = fileURLToPath(new URL("./fixtures/echo-server.mjs", import.meta.url));
+const FIXTURE = fileURLToPath(new URL("../fixtures/echo-server.mjs", import.meta.url));
 const silent = createLogger({ level: "silent" });
 
 let home;
