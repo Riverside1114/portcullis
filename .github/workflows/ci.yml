@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# The core is a proxy for other people's tooling. It has to behave identically
+# on every platform an agent runs on, and stdio behaviour is exactly where
+# platforms differ — so the matrix is not optional here.
+jobs:
+  core:
+    name: core (node ${{ matrix.node }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: ["20", "22"]
+
+    defaults:
+      run:
+        working-directory: core
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: core/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Type check and build
+        run: npm run build
+
+      - name: Test
+        run: npm test
