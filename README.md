@@ -10,6 +10,7 @@ on your behalf. Right now you have no idea what it actually did.
 Portcullis sits between the agent and its tools, records every call, and stops
 the ones you never agreed to.
 
+[![CI](https://github.com/Riverside1114/portcullis/actions/workflows/ci.yml/badge.svg)](https://github.com/Riverside1114/portcullis/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Status: early](https://img.shields.io/badge/status-early%20development-orange.svg)](docs/roadmap.md)
 
