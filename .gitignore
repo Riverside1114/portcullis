@@ -1,0 +1,53 @@
+# ---- Claude Code session data (never publish) ----
+.claude/
+CLAUDE.local.md
+
+# ---- Node / TypeScript ----
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+.npm/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+htmlcov/
+.coverage
+
+# ---- .NET ----
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# ---- Go ----
+/collector/collector
+/collector/collector.exe
+
+# ---- Portcullis runtime data ----
+# Audit logs contain real tool traffic. They must never be committed.
+*.portcullis.jsonl
+.portcullis/
+audit-logs/
+
+# ---- Editors / OS ----
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+desktop.ini
