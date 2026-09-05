@@ -3,7 +3,7 @@
  *
  * These drive the real proxy against the fixture server and then read the audit
  * log back off disk, because the thing worth testing is not that a function was
- * called — it is that the file left behind actually answers "what did it do".
+ * called, it is that the file left behind actually answers "what did it do".
  */
 
 import { test, before, after } from "node:test";

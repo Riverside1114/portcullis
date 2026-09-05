@@ -1,14 +1,4 @@
 #!/usr/bin/env node
-/**
- * Command line entry point.
- *
- * The calling convention is deliberately `portcullis run [options] -- <command>`.
- * Everything after `--` is the original MCP server invocation, forwarded
- * untouched. That separator is what lets Portcullis wrap servers it has never
- * heard of, including ones written after it: it never has to parse, understand,
- * or have an opinion about the wrapped command.
- */
-
 import { parseArgs } from "node:util";
 import { readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -19,35 +9,39 @@ import { Recorder, DEFAULT_MAX_PAYLOAD_BYTES } from "./recorder.js";
 import { Session } from "./session.js";
 import { logPathFor } from "./paths.js";
 import { tail } from "./commands/tail.js";
+import { serve } from "./commands/serve.js";
 
-const EXIT_USAGE = 64; // sysexits.h EX_USAGE
-const EXIT_UNAVAILABLE = 69; // sysexits.h EX_UNAVAILABLE
+const EXIT_USAGE = 64;
+const EXIT_UNAVAILABLE = 69;
+
+const DEFAULT_PORT = 7717;
 
 function readVersion(): string {
   try {
     const here = dirname(fileURLToPath(import.meta.url));
-    const raw = readFileSync(join(here, "..", "package.json"), "utf8");
-    const parsed: unknown = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
     if (parsed && typeof parsed === "object" && "version" in parsed) {
       const { version } = parsed as { version?: unknown };
       if (typeof version === "string") return version;
     }
   } catch {
-    /* fall through */
+    /* fall through to the placeholder */
   }
   return "0.0.0";
 }
 
-const HELP = `portcullis — a firewall and flight recorder for AI tool calls
+const HELP = `portcullis, a firewall and flight recorder for AI tool calls
 
 USAGE
   portcullis run [options] -- <command> [args...]
   portcullis tail [server] [options]
+  portcullis serve [options]
 
 COMMANDS
   run      Wrap an MCP server. Everything after -- is the server command,
            exactly as you would have written it in your agent's config.
-  tail     Read the audit log back. With no server name, lists what exists.
+  tail     Read the audit log in the terminal. With no server, lists what exists.
+  serve    Open the web dashboard on localhost.
 
 RUN OPTIONS
   --name <name>        Label for this server, and the log filename.
@@ -55,16 +49,20 @@ RUN OPTIONS
   --no-record          Pass traffic through without writing an audit log
   --max-payload <n>    Bytes of each payload to keep (default: ${DEFAULT_MAX_PAYLOAD_BYTES})
   --cwd <path>         Working directory for the wrapped server
-  --log-level <level>  ${LOG_LEVELS.join(" | ")}   (default: info)
-  --verbose            Shorthand for --log-level debug
-  --quiet              Shorthand for --log-level error
 
 TAIL OPTIONS
-  -n <count>           Number of trailing records to show (default: 50, 0 = all)
+  -n <count>           Trailing records to show (default: 50, 0 for all)
   -f, --follow         Keep printing records as they arrive
   --json               Emit raw JSONL instead of the rendered view
 
+SERVE OPTIONS
+  --port <n>           Port to listen on (default: ${DEFAULT_PORT})
+  --host <addr>        Address to bind (default: 127.0.0.1)
+
 GLOBAL
+  --log-level <level>  ${LOG_LEVELS.join(" | ")}   (default: info)
+  --verbose            Shorthand for --log-level debug
+  --quiet              Shorthand for --log-level error
   -h, --help           Show this help
   -v, --version        Show the version
 
@@ -77,22 +75,24 @@ EXAMPLE
                "npx", "-y", "@modelcontextprotocol/server-filesystem", "/home/me"]
     }
 
-  Then see what it did:
+  Then look at what it did:
 
     portcullis tail filesystem
+    portcullis serve
 
 NOTES
-  Diagnostics are written to stderr. stdout carries protocol traffic and is
-  never written to by Portcullis itself.
+  Diagnostics go to stderr. stdout carries protocol traffic and is never
+  written to by Portcullis itself.
 
-  Logs live under ~/.portcullis/logs and never leave the machine.
+  Logs live under ~/.portcullis/logs and never leave the machine. The
+  dashboard binds to localhost only.
 
-  Full documentation: https://github.com/Riverside1114/portcullis
+  Documentation: https://github.com/Riverside1114/portcullis
 `;
 
 export async function main(argv: readonly string[]): Promise<number> {
-  // Split our own flags from the wrapped command before parsing, so that flags
-  // belonging to the target server are never interpreted as ours.
+  // Split our flags from the wrapped command first, so flags belonging to the
+  // target server are never interpreted as ours.
   const separator = argv.indexOf("--");
   const ownArgs = separator === -1 ? [...argv] : argv.slice(0, separator);
   const targetArgv = separator === -1 ? [] : argv.slice(separator + 1);
@@ -108,6 +108,8 @@ export async function main(argv: readonly string[]): Promise<number> {
         "no-record": { type: "boolean", default: false },
         "max-payload": { type: "string" },
         cwd: { type: "string" },
+        port: { type: "string" },
+        host: { type: "string" },
         "log-level": { type: "string" },
         verbose: { type: "boolean", default: false },
         quiet: { type: "boolean", default: false },
@@ -152,6 +154,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   switch (subcommand) {
     case "run":
       return runCommand({ values, targetArgv, level });
+
     case "tail":
       return tail({
         server: positionals[1],
@@ -162,6 +165,14 @@ export async function main(argv: readonly string[]): Promise<number> {
         err: process.stderr,
         colour: process.stdout.isTTY === true,
       });
+
+    case "serve":
+      return serve({
+        port: parseCount(values.port, DEFAULT_PORT),
+        host: values.host ?? "127.0.0.1",
+        logger: createLogger({ level, scope: "serve" }),
+      });
+
     default:
       process.stderr.write(`portcullis: unknown command "${subcommand}"\n\n${HELP}`);
       return EXIT_USAGE;
@@ -192,12 +203,10 @@ async function runCommand({ values, targetArgv, level }: RunContext): Promise<nu
 
   const name = values.name ?? basename(command);
   const logger = createLogger({ level, scope: name });
-
   const maxPayloadBytes = parseCount(values["max-payload"], DEFAULT_MAX_PAYLOAD_BYTES);
 
-  // Recording is best-effort by design. If the log cannot be opened — read-only
-  // home directory, full disk — Portcullis degrades to the M1 passthrough and
-  // says so, rather than refusing to start and taking the agent down with it.
+  // Recording is best effort. A read-only home or a full disk degrades to a
+  // plain passthrough rather than taking the agent's tooling down.
   const recorder = values["no-record"] ? null : await openRecorder(name, maxPayloadBytes, logger);
   const session = recorder ? new Session({ server: name, recorder, logger }) : undefined;
 
@@ -222,8 +231,6 @@ async function runCommand({ values, targetArgv, level }: RunContext): Promise<nu
     logger.error("unexpected failure", error);
     return 1;
   } finally {
-    // Flush before the process is allowed to end, or the tail of the session is
-    // lost exactly when something has gone wrong and the log matters most.
     if (recorder) await recorder.close();
   }
 }
@@ -266,13 +273,11 @@ function basename(command: string): string {
   return parts[parts.length - 1] ?? command;
 }
 
-// Only run when invoked directly, so tests can import `main` without it firing.
 const invokedPath = process.argv[1];
 if (invokedPath && import.meta.url === pathToFileURL(invokedPath).href) {
   void main(process.argv.slice(2)).then((code) => {
-    // Assigning exitCode rather than calling process.exit() lets Node drain and
-    // flush stdout before leaving. process.exit() truncates piped output, which
-    // for a proxy means silently eating the tail of a protocol stream.
+    // exitCode rather than process.exit(), which truncates piped output and for
+    // a proxy would silently eat the tail of a protocol stream.
     process.exitCode = code;
   });
 }

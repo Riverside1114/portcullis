@@ -1,6 +1,6 @@
 # portcullis-mcp
 
-The core proxy for [Portcullis](https://github.com/Riverside1114/portcullis) — a
+The core proxy for [Portcullis](https://github.com/Riverside1114/portcullis), a
 firewall and flight recorder for AI tool calls.
 
 ## Install
@@ -31,27 +31,53 @@ command, untouched:
 }
 ```
 
-Your agent behaves exactly as before. That is the point — Portcullis is
+Your agent behaves exactly as before. That is the point. Portcullis is
 transparent by default and must never be the reason something broke.
+
+## See what happened
+
+```sh
+portcullis tail filesystem   # in the terminal
+portcullis serve             # web dashboard on 127.0.0.1:7717
+```
+
+The dashboard gives a live call feed, per-method p50 and p95 latency, error
+rates, filtering by method, kind and direction, and the full payload of any
+record. It binds to localhost only.
 
 ## Current state
 
-This is v0.1: a faithful passthrough with diagnostics. Recording and policy
-enforcement land in the next two milestones — see
+v0.1: a faithful passthrough, a correlated audit log, and the dashboard. Policy
+enforcement is next, see
 [the roadmap](https://github.com/Riverside1114/portcullis/blob/main/docs/roadmap.md).
 
 ## Options
 
 ```
---name <name>        Label for this server in logs
---log-level <level>  silent | error | warn | info | debug   (default: info)
---verbose            Shorthand for --log-level debug
---quiet              Shorthand for --log-level error
---cwd <path>         Working directory for the wrapped server
+run
+  --name <name>        Label for this server, and the log filename
+  --no-record          Pass traffic through without writing an audit log
+  --max-payload <n>    Bytes of each payload to keep (default: 32768)
+  --cwd <path>         Working directory for the wrapped server
+
+tail [server]
+  -n <count>           Trailing records to show (default: 50, 0 for all)
+  -f, --follow         Keep printing records as they arrive
+  --json               Emit raw JSONL instead of the rendered view
+
+serve
+  --port <n>           Port to listen on (default: 7717)
+  --host <addr>        Address to bind (default: 127.0.0.1)
+
+global
+  --log-level <level>  silent | error | warn | info | debug (default: info)
+  --verbose            Shorthand for --log-level debug
+  --quiet              Shorthand for --log-level error
 ```
 
 Diagnostics go to stderr. stdout carries protocol traffic and is never written
-to by Portcullis itself.
+to by Portcullis itself. Logs live under `~/.portcullis/logs` and never leave
+the machine.
 
 ## License
 

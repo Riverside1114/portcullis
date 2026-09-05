@@ -8,7 +8,7 @@ on:
 
 # The core is a proxy for other people's tooling. It has to behave identically
 # on every platform an agent runs on, and stdio behaviour is exactly where
-# platforms differ — so the matrix is not optional here.
+# platforms differ, so the matrix is not optional here.
 jobs:
   core:
     name: core (node ${{ matrix.node }}, ${{ matrix.os }})

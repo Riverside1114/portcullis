@@ -1,12 +1,3 @@
-/**
- * Library surface.
- *
- * Portcullis is primarily a command line tool, but the pieces are exported so
- * they can be embedded — an agent framework that spawns its own MCP servers can
- * wrap them in-process rather than shelling out, and other tools can read the
- * audit log format without reimplementing it.
- */
-
 export { runProxy, ServerLaunchError } from "./proxy.js";
 export type { ProxyOptions, ProxyOutcome, ProxyStreams } from "./proxy.js";
 

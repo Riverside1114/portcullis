@@ -16,7 +16,7 @@ Useful to include, if you have it: the version, what an attacker gains, and the
 smallest reproduction you can manage.
 
 Expect an initial response within a few days. Portcullis is maintained by a
-small number of people, so please be patient with the timeline — you will not be
+small number of people, so please be patient with the timeline. You will not be
 ignored.
 
 ## Scope
@@ -27,7 +27,7 @@ In scope, and taken seriously:
   promise is byte-exact forwarding.
 - A path from a server name, policy file, or tool argument to writing outside
   `~/.portcullis`.
-- Audit records that can be forged, suppressed, or mis-attributed — a log that
+- Audit records that can be forged, suppressed, or mis-attributed. A log that
   can be made to lie is worse than no log.
 - Secrets that reach the log or the model's context when a rule should have
   redacted them.

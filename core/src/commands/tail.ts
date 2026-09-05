@@ -1,13 +1,5 @@
-/**
- * `portcullis tail` — read the audit log back.
- *
- * The log is JSONL precisely so it can be read with `tail -f` and `jq`, and
- * this command is not trying to replace those. What it adds is correlation the
- * raw file cannot show at a glance: a response rendered next to the method that
- * produced it, and the time it took. That is the question people actually have
- * when they open the log — not "what messages went past" but "what did it do,
- * and what happened".
- */
+// Renders the audit log with the correlation the raw JSONL cannot show at a
+// glance: each reply beside the method that produced it, and how long it took.
 
 import { createReadStream, existsSync, statSync, watchFile, unwatchFile } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
@@ -17,17 +9,13 @@ import type { AuditRecord } from "../recorder.js";
 import { logPathFor, logsDir } from "../paths.js";
 
 export interface TailOptions {
-  /** Server name to read. When absent, the available logs are listed instead. */
+  /** Absent lists the available logs instead of reading one. */
   server?: string | undefined;
-  /** How many trailing records to show. */
   count: number;
-  /** Keep the process alive and print records as they are appended. */
   follow: boolean;
-  /** Emit the raw records instead of the rendered view. */
   json: boolean;
   out: NodeJS.WritableStream;
   err: NodeJS.WritableStream;
-  /** Colour is suppressed when the output is redirected. */
   colour?: boolean;
 }
 
@@ -103,24 +91,17 @@ function parseRecord(line: string): AuditRecord | null {
   }
 }
 
-/**
- * Polls for appended records.
- *
- * `watchFile` rather than `watch` because this has to behave identically on
- * Windows, macOS and Linux, and the native watchers disagree about append
- * events. Reading only from the last known offset keeps this cheap regardless
- * of how large the log has grown.
- */
+// watchFile rather than watch: the native watchers disagree across platforms
+// about append events. Reading from the last offset keeps this cheap on a
+// large log.
 async function followFrom(path: string, startOffset: number, options: TailOptions): Promise<void> {
   let offset = startOffset;
   let pending = Promise.resolve();
 
   const drain = async (): Promise<void> => {
     const size = statSync(path).size;
-    if (size < offset) {
-      // The file was replaced or rotated underneath us. Start over from the top.
-      offset = 0;
-    }
+    // Replaced or rotated underneath us.
+    if (size < offset) offset = 0;
     if (size === offset) return;
 
     const stream = createReadStream(path, { start: offset, encoding: "utf8" });
@@ -195,9 +176,8 @@ function render(record: AuditRecord, options: TailOptions): string {
   );
 }
 
-/** Keeps one long field from destroying the alignment of every other column. */
 function abbreviate(text: string, limit: number): string {
-  return text.length <= limit ? text : `${text.slice(0, limit - 1)}…`;
+  return text.length <= limit ? text : `${text.slice(0, limit - 3)}...`;
 }
 
 function formatBytes(bytes: number): string {

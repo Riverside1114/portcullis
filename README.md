@@ -20,7 +20,7 @@ the ones you never agreed to.
 
 ## The problem
 
-The Model Context Protocol (MCP) made it trivial to give a language model real
+The Model Context Protocol made it trivial to give a language model real
 capabilities. A dozen lines of config and your agent can touch your git repos,
 your database, your Slack workspace, your cloud account.
 
@@ -32,24 +32,24 @@ What it did not come with:
   read files. Nothing enforces that.
 - **No inspection of what comes back.** Tool results are fed straight into the
   model's context. A web page, an issue comment, or a file the agent reads can
-  contain text written to hijack it — and it arrives pre-trusted.
+  contain text written to hijack it, and it arrives pre-trusted.
 - **No redaction.** An API key sitting in a `.env` the agent read is now in the
   model's context, and in whatever transcript your provider keeps.
 
 Every one of these is a solved problem in ordinary software. We have proxies,
-audit logs, and firewalls. Agents just skipped that entire layer.
+audit logs, and firewalls. Agents skipped that entire layer.
 
 ## The idea
 
 Portcullis is a proxy that speaks MCP on both sides. You change one line of
-config — pointing your agent at Portcullis instead of the real server — and
+config, pointing your agent at Portcullis instead of the real server, and
 everything else keeps working.
 
 ```
                     ┌──────────────────────────────┐
    AI agent  ◄─────►│  Portcullis                  │◄─────►  real MCP server
    (Claude,         │                              │         (filesystem, git,
-    Cursor,         │  • records every call        │          github, postgres…)
+    Cursor,         │  • records every call        │          github, postgres)
     your app)       │  • enforces a policy file    │
                     │  • redacts secrets in results│
                     │  • flags injected content    │
@@ -57,6 +57,67 @@ everything else keeps working.
 ```
 
 Nothing about your agent changes. It does not know Portcullis is there.
+
+## Install
+
+```sh
+npm install -g portcullis-mcp
+```
+
+## Use
+
+Take the MCP server entry in your agent's config:
+
+```json
+"filesystem": {
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/me"]
+}
+```
+
+Put Portcullis in front of it. Everything after `--` is your original command,
+untouched:
+
+```json
+"filesystem": {
+  "command": "portcullis",
+  "args": ["run", "--name", "filesystem", "--",
+           "npx", "-y", "@modelcontextprotocol/server-filesystem", "/home/me"]
+}
+```
+
+That separator is the key design choice. Portcullis never has to parse or
+understand the wrapped command, so it works with every MCP server that exists,
+including ones written after it.
+
+## See what happened
+
+In the terminal:
+
+```sh
+portcullis tail filesystem
+```
+
+```
+12:59:47.316  -->  tools/call        call            143 B
+12:59:47.384  <--  tools/call        ok      68ms    120 B
+12:59:47.316  -->  (uncorrelated)    malformed: not JSON: Unexpected...   13 B
+```
+
+A response line carries the method that produced it and how long it took. The
+raw protocol does not: a JSON-RPC reply contains only an id.
+
+Or in the browser:
+
+```sh
+portcullis serve
+```
+
+A local dashboard on `127.0.0.1:7717` with a live call feed, per-method p50 and
+p95 latency, error rates, filtering by method, kind and direction, and a detail
+drawer showing the full payload of any record. No framework, no build step, no
+network access. It binds to localhost only, because the log holds file contents
+and API responses your agent saw.
 
 ## Design rules
 
@@ -68,45 +129,37 @@ These are load-bearing. Everything in the roadmap is checked against them.
 2. **Fail visible, not silent.** If Portcullis cannot evaluate a policy, it says
    so loudly rather than quietly allowing or quietly denying.
 3. **The log is append-only and local.** Your tool traffic is some of the most
-   sensitive data you have. It never leaves the machine. There is no account,
-   no telemetry, no phone-home.
-4. **The core runs alone.** The proxy is TypeScript with a minimal dependency
-   set. The analyzer, dashboard, and desktop app are *optional layers* — if you
-   only want the log, you never install them.
+   sensitive data you have. It never leaves the machine. There is no account, no
+   telemetry, no phone-home.
+4. **The core runs alone.** The proxy is TypeScript with zero runtime
+   dependencies. Later layers are optional; if you only want the log and the
+   dashboard, you install nothing else.
 
 ## Project status
 
-Early. Being built in public, in layers, from the ground up.
-See [the roadmap](docs/roadmap.md) for what exists and what is next.
+Early, and built in public in layers. See [the roadmap](docs/roadmap.md).
 
 | Layer | Language | State |
 |-------|----------|-------|
-| `core/` — the proxy | TypeScript | recording works |
-| `analyzer/` — detection rules | Python | planned |
-| `collector/` — log query daemon | Go | planned |
-| `dashboard/` — log viewer | HTML/CSS/JS | planned |
-| `desktop/` — tray app, live approvals | C# / WPF | planned |
+| `core/` proxy and recorder | TypeScript | working |
+| `core/dashboard/` web UI | HTML, CSS, JS | working |
+| policy engine | TypeScript | next |
+| `analyzer/` detection rules | Python | planned |
+| `collector/` log index for large archives | Go | planned |
+| `desktop/` tray app and live approvals | C# and WPF | planned |
 
-Why several languages? Each layer is a genuinely different job, and the split
-is explained in [docs/architecture.md](docs/architecture.md#why-this-is-polyglot).
+Why several languages? Each layer is a genuinely different job, and the split is
+explained in [docs/architecture.md](docs/architecture.md#why-this-is-polyglot).
 The core never depends on the others.
 
-## The log
+## Documentation
 
-Once Portcullis is in the path, every call is on disk in a format meant to be
-read by other tools — see [docs/audit-log.md](docs/audit-log.md).
-
-```
-$ portcullis tail filesystem
-12:46:26.481  -->  initialize                 call             88 B
-12:46:26.482  -->  tools/call                 call            111 B
-12:46:26.557  <--  initialize                 ok             75ms     97 B
-12:46:26.558  <--  tools/call                 ok             76ms    120 B
-```
-
-A response line carries the method that produced it and how long it took, which
-the raw protocol does not — a JSON-RPC reply contains only an id.
+- [Architecture](docs/architecture.md), how the pieces fit and why
+- [Audit log format](docs/audit-log.md), a stable contract other tools can read
+- [Roadmap](docs/roadmap.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).

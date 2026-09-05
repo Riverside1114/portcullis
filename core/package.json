@@ -2,7 +2,16 @@
   "name": "portcullis-mcp",
   "version": "0.1.0",
   "description": "A firewall and flight recorder for AI tool calls. Proxies MCP traffic, records it, and enforces policy.",
-  "keywords": ["mcp", "model-context-protocol", "ai", "agent", "security", "proxy", "audit", "llm"],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "agent",
+    "security",
+    "proxy",
+    "audit",
+    "llm"
+  ],
   "license": "MIT",
   "author": "Riverside1114",
   "repository": {
@@ -24,7 +33,11 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "dashboard",
+    "README.md"
+  ],
   "engines": {
     "node": ">=20.0.0"
   },

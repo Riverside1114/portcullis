@@ -45,7 +45,7 @@ Set `PORTCULLIS_HOME` to keep experiments out of your real logs.
 
 ## Tests
 
-The suite runs on Node's built-in test runner — no framework to install.
+The suite runs on Node's built-in test runner, so there is no framework to install.
 
 Tests here lean towards proving properties rather than exercising functions.
 The valuable ones look like *"a 2 MB payload survives intact"*, *"a multi-byte
@@ -58,7 +58,7 @@ Node 20 and 22 for that reason.
 
 ## Commits
 
-Conventional commits — `feat(core):`, `fix(analyzer):`, `docs:`, `chore:`.
+Conventional commits: `feat(core):`, `fix(analyzer):`, `docs:`, `chore:`.
 
 Write the body for someone reading it in a year with no memory of the
 discussion. Say what changed and, more importantly, why that was the right
@@ -67,7 +67,7 @@ choice. A commit that only restates the diff is a wasted opportunity.
 ## Working on a later milestone
 
 The [roadmap](docs/roadmap.md) is ordered deliberately, and each milestone is
-finished before the next begins — no half-built layers stacked on other
+finished before the next begins, with no half-built layers stacked on other
 half-built layers. If you want to start on something further down the list,
 open an issue first so the layer beneath it can be shaped to fit.
 

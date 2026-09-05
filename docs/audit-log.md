@@ -61,7 +61,7 @@ Timestamps collide. Several messages can share a millisecond, and sorting by
 
 ### Correlation
 
-A raw JSON-RPC response carries only an `id` — not the method, not a duration.
+A raw JSON-RPC response carries only an `id`, not the method and not a duration.
 A log of those is close to useless.
 
 Portcullis holds each outstanding request until its reply arrives, then writes
@@ -98,13 +98,13 @@ marker that keeps the head and the true size:
   "params": {
     "@portcullis": "truncated",
     "bytes": 2097231,
-    "head": "{\"contents\":\"xxxxxxxx…"
+    "head": "{\"contents\":\"xxxxxxxx..."
   },
   "truncated": true
 }
 ```
 
-**Truncation applies only to the log.** The traffic itself is never altered —
+**Truncation applies only to the log.** The traffic itself is never altered.
 `bytes` always reports what actually crossed the wire, so a truncated record
 still tells you the real size of what the agent received.
 
@@ -113,7 +113,7 @@ still tells you the real size of what the agent received.
 A line that is not valid JSON-RPC is recorded as `kind: "malformed"` with a
 `reason`, **and passed through unchanged**. A server printing a stray debug line
 to stdout is misbehaving, and that is exactly the kind of thing the log exists
-to capture — but it is not Portcullis's place to withhold it.
+to capture, but it is not Portcullis's place to withhold it.
 
 ## Compatibility
 

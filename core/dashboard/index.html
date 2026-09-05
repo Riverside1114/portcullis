@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Portcullis</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#9931;</text></svg>"
+    />
+  </head>
+  <body>
+    <header class="bar">
+      <div class="brand">
+        <span class="mark" aria-hidden="true"></span>
+        <h1>Portcullis</h1>
+      </div>
+
+      <label class="field">
+        <span>Server</span>
+        <select id="server"></select>
+      </label>
+
+      <button id="live" class="toggle" type="button" aria-pressed="false">
+        <span class="dot"></span> Live
+      </button>
+
+      <button id="refresh" class="ghost" type="button">Refresh</button>
+    </header>
+
+    <section class="tiles" id="tiles" aria-label="Summary"></section>
+
+    <div class="layout">
+      <aside class="panel">
+        <div class="group">
+          <h2>Filter</h2>
+          <label class="field">
+            <span>Search method</span>
+            <input id="q" type="search" placeholder="tools/call" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span>Kind</span>
+            <select id="kind">
+              <option value="">any</option>
+              <option value="request">request</option>
+              <option value="response">response</option>
+              <option value="error">error</option>
+              <option value="notification">notification</option>
+              <option value="malformed">malformed</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Direction</span>
+            <select id="dir">
+              <option value="">any</option>
+              <option value="to-server">to server</option>
+              <option value="to-agent">to agent</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="group">
+          <h2>Methods</h2>
+          <div id="methods" class="methods"></div>
+        </div>
+      </aside>
+
+      <main class="panel main">
+        <div class="tablewrap">
+          <table id="table">
+            <thead>
+              <tr>
+                <th class="c-time">Time</th>
+                <th class="c-dir"></th>
+                <th class="c-method">Method</th>
+                <th class="c-kind">Kind</th>
+                <th class="c-ms">Duration</th>
+                <th class="c-bytes">Size</th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <p id="empty" class="empty" hidden></p>
+      </main>
+    </div>
+
+    <aside id="detail" class="detail" hidden>
+      <div class="detail-head">
+        <h2 id="detail-title">Record</h2>
+        <button id="detail-close" class="ghost" type="button" aria-label="Close">Close</button>
+      </div>
+      <dl id="detail-meta" class="meta"></dl>
+      <h3>Payload</h3>
+      <pre id="detail-body"></pre>
+    </aside>
+
+    <script src="app.js"></script>
+  </body>
+</html>

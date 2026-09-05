@@ -1,34 +1,19 @@
-/**
- * The append-only audit log.
- *
- * One JSON object per line, one file per proxied server. The format is
- * deliberately boring: JSONL is greppable, tailable, and readable by anything,
- * which matters more here than compactness. If Portcullis is ever the thing you
- * reach for after an incident, the log must be legible without Portcullis.
- *
- * Records carry a schema version so later tooling can read older logs.
- */
-
 import { createWriteStream, type WriteStream } from "node:fs";
 import { dirname } from "node:path";
 import type { JsonRpcError, JsonRpcId, MessageKind } from "./protocol.js";
 import type { Logger } from "./logging.js";
 import { ensureDir } from "./paths.js";
 
-/** Which way a message was travelling when it was observed. */
 export type Direction = "to-server" | "to-agent";
 
 export const AUDIT_SCHEMA_VERSION = 1;
 
 export interface AuditRecord {
-  /** Schema version, so a reader can tell what it is looking at. */
   v: number;
-  /** ISO 8601, always UTC. */
   ts: string;
-  /** Groups every record from one run of one server. */
   session: string;
   server: string;
-  /** Monotonic within a session — survives identical timestamps. */
+  /** Monotonic within a session. Timestamps collide; this does not. */
   seq: number;
   dir: Direction;
   kind: MessageKind;
@@ -37,24 +22,14 @@ export interface AuditRecord {
   params?: unknown;
   result?: unknown;
   error?: JsonRpcError;
-  /** Milliseconds from request to response. Only on records that answer one. */
+  /** Milliseconds from request to reply, on correlated replies only. */
   ms?: number;
-  /** Size of the message as it appeared on the wire. */
+  /** Size on the wire, always the true size even when the payload is clamped. */
   bytes: number;
-  /** Set when a payload was too large to store whole. */
   truncated?: boolean;
-  /** For malformed lines: why they could not be understood. */
   reason?: string;
 }
 
-/**
- * How much of a single payload to keep.
- *
- * A tool result can be an entire file. Storing all of it turns the log into a
- * second copy of the filesystem; storing none of it makes the log useless for
- * answering what actually happened. 32 KiB keeps the shape of almost every real
- * call while bounding the worst case.
- */
 export const DEFAULT_MAX_PAYLOAD_BYTES = 32 * 1024;
 
 export interface RecorderOptions {
@@ -81,16 +56,13 @@ export class Recorder {
   static async open(options: RecorderOptions): Promise<Recorder> {
     await ensureDir(dirname(options.path));
 
-    // 'a' is what makes this append-only in practice: concurrent proxies for
-    // different servers can share a directory, and a crash never truncates the
-    // history that was already written.
+    // Append mode: a crash never truncates history already written, and several
+    // proxies can share the directory. 0600 because the log holds file contents
+    // and API responses the agent saw.
     const stream = createWriteStream(options.path, { flags: "a", mode: 0o600 });
-
     const recorder = new Recorder(options.path, stream, options);
 
     stream.on("error", (error) => {
-      // A full disk must not take down the traffic Portcullis is carrying.
-      // Report once, then degrade to passthrough for the rest of the session.
       if (!recorder.#broken) {
         recorder.#broken = true;
         options.logger.error(`audit log write failed, recording disabled: ${String(error)}`);
@@ -142,11 +114,9 @@ interface ClampResult {
   truncated: boolean;
 }
 
-/**
- * Replaces an oversized payload with a marker that keeps its head and its true
- * size. The marker is a plain object so the log stays valid JSONL, and it
- * records the original byte count so a reader can tell how much is missing.
- */
+// A tool result can be a whole file. Keeping all of it makes the log a second
+// copy of the filesystem; keeping none makes it useless. Keep the head and the
+// true size. This affects the log only, never the wire.
 function clampPayload(value: unknown, maxBytes: number): ClampResult {
   let json: string;
   try {
@@ -159,11 +129,7 @@ function clampPayload(value: unknown, maxBytes: number): ClampResult {
   if (bytes <= maxBytes) return { value, truncated: false };
 
   return {
-    value: {
-      "@portcullis": "truncated",
-      bytes,
-      head: json.slice(0, maxBytes),
-    },
+    value: { "@portcullis": "truncated", bytes, head: json.slice(0, maxBytes) },
     truncated: true,
   };
 }

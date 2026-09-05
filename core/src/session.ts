@@ -1,13 +1,3 @@
-/**
- * Correlation: turning a stream of messages into a record of calls.
- *
- * A JSON-RPC response carries only an id. A log line reading
- * `response id=7 {...}` is nearly worthless — you cannot tell what was asked,
- * and you cannot tell how long it took. The session holds the in-flight calls
- * so that every response is recorded with the method that produced it and the
- * time it took to come back.
- */
-
 import { randomUUID } from "node:crypto";
 import { classify, correlationKey, type JsonRpcId } from "./protocol.js";
 import type { AuditRecord, Direction, Recorder } from "./recorder.js";
@@ -15,9 +5,7 @@ import type { Logger } from "./logging.js";
 
 interface InflightCall {
   method: string;
-  /** Millisecond timestamp when the call was observed leaving. */
   startedAt: number;
-  /** Sequence number of the request record, for stitching a log back together. */
   requestSeq: number;
 }
 
@@ -31,10 +19,11 @@ export interface SessionOptions {
   server: string;
   recorder: Recorder;
   logger: Logger;
-  /** Overridable so tests can produce deterministic output. */
   now?: () => number;
 }
 
+// Holds outstanding requests so each reply can be recorded with the method that
+// produced it and its duration. A raw JSON-RPC reply carries only an id.
 export class Session {
   readonly id: string;
   readonly server: string;
@@ -57,13 +46,7 @@ export class Session {
     return this.#inflight.size;
   }
 
-  /**
-   * Records one observed message.
-   *
-   * Never throws. This runs inside the data path of a stream carrying live
-   * protocol traffic; an exception here would be a bug in Portcullis that
-   * breaks the agent, which design rule 1 forbids.
-   */
+  // Never throws. This runs inside a stream carrying live protocol traffic.
   observe(dir: Direction, line: string): void {
     try {
       this.#record(dir, line);
@@ -92,7 +75,6 @@ export class Session {
         record.id = message.id;
         record.method = message.method;
         record.params = message.params;
-        // Track it so the eventual response can be attributed back to it.
         this.#inflight.set(this.#key(dir, message.id), {
           method: message.method,
           startedAt: this.#now(),
@@ -102,10 +84,9 @@ export class Session {
       }
 
       case "notification": {
+        // One-way by definition. Tracking these would leak the map.
         record.method = message.method;
         record.params = message.params;
-        // Notifications are one-way by definition. Nothing to correlate — and
-        // tracking them would leak the map, since no response ever arrives.
         break;
       }
 
@@ -120,9 +101,6 @@ export class Session {
           record.method = pending.method;
           record.ms = this.#now() - pending.startedAt;
         } else {
-          // A response to a call Portcullis never saw. Worth noticing: either
-          // the proxy started mid-conversation, or the server is answering
-          // something nobody asked.
           record.reason = "no matching request observed";
         }
         break;
@@ -137,13 +115,7 @@ export class Session {
     this.#recorder.write(record);
   }
 
-  /**
-   * Calls that were sent but never answered.
-   *
-   * A server that hangs on one tool call while continuing to serve others is a
-   * real failure mode, and one an agent hides — the model simply waits. This is
-   * how it becomes visible.
-   */
+  /** Calls sent but never answered. An agent hides this; the model just waits. */
   unanswered(): UnansweredCall[] {
     const now = this.#now();
     const result: UnansweredCall[] = [];
@@ -153,19 +125,13 @@ export class Session {
     return result;
   }
 
-  /**
-   * Keys an in-flight call by the direction it travelled as well as its id.
-   *
-   * Both sides may originate calls — a server can ask the agent to sample from
-   * the model, or for its filesystem roots — so ids from the two directions
-   * live in separate spaces and can legitimately collide.
-   */
+  // Keyed by direction as well as id. Both sides may originate calls, so the
+  // two id spaces can legitimately collide.
   #key(dir: Direction, id: JsonRpcId): string {
     return `${dir}|${correlationKey(id)}`;
   }
 
   #takeInflight(responseDir: Direction, id: JsonRpcId): InflightCall | undefined {
-    // A response travelling one way answers a request that travelled the other.
     const requestDir: Direction = responseDir === "to-agent" ? "to-server" : "to-agent";
     const key = this.#key(requestDir, id);
     const call = this.#inflight.get(key);
