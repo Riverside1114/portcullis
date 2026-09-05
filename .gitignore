@@ -51,3 +51,6 @@ audit-logs/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# npm pack output
+*.tgz
