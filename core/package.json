@@ -1,0 +1,42 @@
+{
+  "name": "portcullis-mcp",
+  "version": "0.1.0",
+  "description": "A firewall and flight recorder for AI tool calls. Proxies MCP traffic, records it, and enforces policy.",
+  "keywords": ["mcp", "model-context-protocol", "ai", "agent", "security", "proxy", "audit", "llm"],
+  "license": "MIT",
+  "author": "Riverside1114",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Riverside1114/portcullis.git",
+    "directory": "core"
+  },
+  "homepage": "https://github.com/Riverside1114/portcullis#readme",
+  "bugs": "https://github.com/Riverside1114/portcullis/issues",
+  "type": "module",
+  "bin": {
+    "portcullis": "dist/cli.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}

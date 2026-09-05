@@ -80,7 +80,7 @@ See [the roadmap](docs/roadmap.md) for what exists and what is next.
 
 | Layer | Language | State |
 |-------|----------|-------|
-| `core/` — the proxy | TypeScript | in progress |
+| `core/` — the proxy | TypeScript | passthrough working |
 | `analyzer/` — detection rules | Python | planned |
 | `collector/` — log query daemon | Go | planned |
 | `dashboard/` — log viewer | HTML/CSS/JS | planned |

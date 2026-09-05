@@ -19,18 +19,18 @@ consistent with.
 - [x] `docs/architecture.md` — how the pieces fit and why it is polyglot
 - [x] `docs/roadmap.md` — this file
 
-## M1 — The passthrough `[~]`
+## M1 — The passthrough `[x]`
 
 The smallest thing that is real: `portcullis run -- <command>` launches the
 target MCP server, wires stdio through in both directions, and gets out of the
 way. No parsing, no policy. Success is measured by an agent not noticing.
 
-- [~] Process supervision — spawn, forward signals, propagate exit code
-- [~] Bidirectional stdio piping with backpressure handled correctly
-- [ ] Clean shutdown when either side closes
-- [ ] `--verbose` diagnostics on stderr (stdout is protocol traffic and is sacred)
+- [x] Process supervision — spawn, forward signals, propagate exit code
+- [x] Bidirectional stdio piping with backpressure handled correctly
+- [x] Clean shutdown when either side closes
+- [x] `--verbose` diagnostics on stderr (stdout is protocol traffic and is sacred)
 
-## M2 — The flight recorder `[ ]`
+## M2 — The flight recorder `[~]`
 
 Now it understands what it is carrying. Frames are parsed as JSON-RPC, requests
 are correlated to responses, and both are written to an append-only log.
