@@ -19,6 +19,17 @@ export interface PolicyOutcome {
   limited?: boolean;
 }
 
+export interface InspectionOutcome {
+  /** Secret findings. The rule ids only, never the values. */
+  secrets?: string[];
+  /** True when the recorded payload is the redacted form, not the wire form. */
+  redacted?: boolean;
+  /** Injection score and the rules that contributed. */
+  score?: number;
+  flagged?: boolean;
+  signals?: string[];
+}
+
 export interface AuditRecord {
   v: number;
   ts: string;
@@ -41,6 +52,8 @@ export interface AuditRecord {
   reason?: string;
   /** Present when a policy was active and judged this message. */
   policy?: PolicyOutcome;
+  /** Present when the analyzer inspected this message. */
+  inspection?: InspectionOutcome;
 }
 
 export const DEFAULT_MAX_PAYLOAD_BYTES = 32 * 1024;

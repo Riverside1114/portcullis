@@ -54,6 +54,7 @@ already written, and several proxies can write to the same directory at once.
 | `truncated` | boolean | when clamped | A payload did not fit. |
 | `reason` | string | malformed, uncorrelated | Why. |
 | `policy` | object | when a policy judged the call | See below. |
+| `inspection` | object | when the analyzer looked at a reply | See below. |
 
 ### Why `seq` exists alongside `ts`
 
@@ -132,6 +133,28 @@ the rule's action.
 A denied call is recorded on the way in even though it never reached the server,
 and the error sent back in its place is recorded as inbound traffic, so the log
 shows both halves of the exchange.
+
+### Inspection findings
+
+When the analyzer is running, replies it looked at carry what it found:
+
+```json
+"inspection": {
+  "secrets": ["github-token", "aws-access-key"],
+  "redacted": true,
+  "score": 5,
+  "flagged": true,
+  "signals": ["override-instructions"]
+}
+```
+
+Only rule ids, never the matched values. A log that stores the credential it
+just reported is the leak it was reporting.
+
+`redacted: true` means **the payload in this record is the redacted form, not
+what crossed the wire**. `bytes` still reports the true wire size. This is the
+one place the log deliberately differs from the traffic, and it differs in the
+safe direction.
 
 ### Malformed messages
 

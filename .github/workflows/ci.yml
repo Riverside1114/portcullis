@@ -40,3 +40,34 @@ jobs:
 
       - name: Test
         run: npm test
+
+  analyzer:
+    name: analyzer (python ${{ matrix.python }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.11", "3.13"]
+
+    defaults:
+      run:
+        working-directory: analyzer
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Test
+        run: python -m unittest discover -s tests -v
+
+      # The rule packs are data. A pattern that no longer compiles would
+      # otherwise only surface when it failed to fire on real traffic.
+      - name: Rules load and compile
+        run: python -m portcullis_analyzer rules

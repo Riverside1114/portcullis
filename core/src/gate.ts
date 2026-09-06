@@ -10,6 +10,15 @@ export type GateAction = "forward" | "drop";
 export interface GateOptions {
   /** Called for every complete message. Return "drop" to refuse it. */
   decide?: (message: ClassifiedMessage, text: string) => GateAction;
+  /**
+   * Rewrites a message on its way past. Returns the replacement, or null to
+   * leave it alone. Async because inspection lives in another process.
+   *
+   * Present only on the outbound side. Awaiting each message in turn is what
+   * keeps ordering intact, at the cost of serialising the stream on whatever
+   * this does.
+   */
+  transform?: (message: ClassifiedMessage, text: string) => Promise<string | null>;
   /** Called for every complete message, whatever the decision. */
   observe?: (text: string) => void;
   /** Reports a message too large to evaluate, carrying any id found in it. */
@@ -72,18 +81,77 @@ class Gate extends Transform {
     const parts = this.#buffer.split("\n");
     this.#buffer = parts.pop() ?? "";
 
-    for (const part of parts) {
-      this.#handle(part, `${part}\n`);
+    if (!this.#options.transform) {
+      for (const part of parts) this.#handle(part, `${part}\n`);
+      callback();
+      return;
     }
 
-    callback();
+    void this.#handleAll(parts, true).then(
+      () => callback(),
+      (error) => {
+        this.#options.onError?.(error);
+        callback();
+      },
+    );
   }
 
   override _flush(callback: TransformCallback): void {
     const rest = this.#buffer + this.#decoder.end();
     this.#buffer = "";
-    if (rest !== "") this.#handle(rest, rest);
-    callback();
+
+    if (rest === "") {
+      callback();
+      return;
+    }
+
+    if (!this.#options.transform) {
+      this.#handle(rest, rest);
+      callback();
+      return;
+    }
+
+    void this.#handleAll([rest], false).then(
+      () => callback(),
+      (error) => {
+        this.#options.onError?.(error);
+        callback();
+      },
+    );
+  }
+
+  /** Sequential on purpose. Concurrency here would reorder the stream. */
+  async #handleAll(parts: string[], newline: boolean): Promise<void> {
+    for (const part of parts) {
+      await this.#handleAsync(part, newline ? `${part}\n` : part);
+    }
+  }
+
+  async #handleAsync(part: string, raw: string): Promise<void> {
+    const text = part.endsWith("\r") ? part.slice(0, -1) : part;
+
+    if (text.trim() === "") {
+      this.push(Buffer.from(raw, "utf8"));
+      return;
+    }
+
+    let replacement: string | null = null;
+    try {
+      this.#options.observe?.(text);
+      replacement = (await this.#options.transform?.(classify(text), text)) ?? null;
+    } catch (error) {
+      this.#options.onError?.(error);
+    }
+
+    if (replacement === null) {
+      this.push(Buffer.from(raw, "utf8"));
+      return;
+    }
+
+    // Keep whatever line ending the original had, so a rewritten message sits
+    // in the stream exactly where the old one did.
+    const ending = raw.endsWith("\r\n") ? "\r\n" : raw.endsWith("\n") ? "\n" : "";
+    this.push(Buffer.from(replacement + ending, "utf8"));
   }
 
   #handle(part: string, raw: string): void {

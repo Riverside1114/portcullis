@@ -63,3 +63,13 @@ export type {
   YamlValue,
   YamlMap,
 } from "./policy/index.js";
+
+export {
+  Analyzer,
+  AnalyzerUnavailable,
+  annotateResult,
+  INJECTION_NOTICE,
+  DEFAULT_ANALYZER_TIMEOUT_MS,
+} from "./analyzer.js";
+export type { AnalyzerResult, AnalyzerFinding, AnalyzerOptions } from "./analyzer.js";
+export type { InspectionOutcome } from "./recorder.js";

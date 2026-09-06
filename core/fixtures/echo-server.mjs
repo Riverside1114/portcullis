@@ -40,6 +40,32 @@ rl.on("line", (line) => {
     return;
   }
 
+  // Emits a credential the request never carried, which is how a real leak
+  // travels: the server read it off disk.
+  if (request.method === "leak") {
+    send({
+      jsonrpc: "2.0",
+      id: request.id,
+      result: {
+        content: [
+          { type: "text", text: "GITHUB_TOKEN=ghp_1234567890abcdefghijklmnopqrstuvwxyz" },
+        ],
+      },
+    });
+    return;
+  }
+
+  // Returns an MCP shaped tool result, so the analyzer has real content to
+  // inspect rather than the echo envelope.
+  if (request.method === "content") {
+    send({
+      jsonrpc: "2.0",
+      id: request.id,
+      result: { content: [{ type: "text", text: request.params?.text ?? "" }] },
+    });
+    return;
+  }
+
   send({
     jsonrpc: "2.0",
     id: request.id,

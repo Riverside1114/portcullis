@@ -12,6 +12,7 @@ import { tail } from "./commands/tail.js";
 import { serve } from "./commands/serve.js";
 import { check } from "./commands/check.js";
 import { loadPolicy, PolicyEngine, PolicyLoadError } from "./policy/index.js";
+import { Analyzer, AnalyzerUnavailable } from "./analyzer.js";
 import type { PolicyRuntime } from "./proxy.js";
 
 const EXIT_USAGE = 64;
@@ -54,6 +55,9 @@ RUN OPTIONS
   --policy <file>      Enforce a policy. Without one, Portcullis only records.
   --ask-fallback <v>   What an ask verdict becomes while no approver is
                        connected: allow or deny. Overrides the policy file.
+  --analyzer <mode>    Result inspection: auto (use the sidecar if it is
+                       running), off, or required (refuse to start without it).
+                       Default: auto.
   --no-record          Pass traffic through without writing an audit log
   --max-payload <n>    Bytes of each payload to keep (default: ${DEFAULT_MAX_PAYLOAD_BYTES})
   --cwd <path>         Working directory for the wrapped server
@@ -124,6 +128,7 @@ export async function main(argv: readonly string[]): Promise<number> {
         name: { type: "string" },
         policy: { type: "string" },
         "ask-fallback": { type: "string" },
+        analyzer: { type: "string" },
         against: { type: "string" },
         "no-record": { type: "boolean", default: false },
         "max-payload": { type: "string" },
@@ -219,6 +224,7 @@ interface RunContext {
     name?: string | undefined;
     policy?: string | undefined;
     "ask-fallback"?: string | undefined;
+    analyzer?: string | undefined;
     "no-record"?: boolean;
     "max-payload"?: string | undefined;
     cwd?: string | undefined;
@@ -280,6 +286,28 @@ async function runCommand({ values, targetArgv, level }: RunContext): Promise<nu
     }
   }
 
+  const mode = values.analyzer ?? "auto";
+  if (!["auto", "off", "required"].includes(mode)) {
+    process.stderr.write("portcullis: --analyzer must be auto, off or required\n");
+    if (recorder) await recorder.close();
+    return EXIT_USAGE;
+  }
+
+  let analyzer: Analyzer | null = null;
+  if (mode !== "off") {
+    try {
+      analyzer = await Analyzer.connect({ logger, required: mode === "required" });
+    } catch (error) {
+      // Only reachable with required, where refusing to start is the point.
+      if (error instanceof AnalyzerUnavailable) {
+        logger.error(error.message);
+        if (recorder) await recorder.close();
+        return EXIT_UNAVAILABLE;
+      }
+      throw error;
+    }
+  }
+
   try {
     const outcome = await runProxy({
       command,
@@ -288,9 +316,16 @@ async function runCommand({ values, targetArgv, level }: RunContext): Promise<nu
       ...(values.cwd === undefined ? {} : { cwd: values.cwd }),
       ...(session === undefined ? {} : { session }),
       ...(policy === undefined ? {} : { policy }),
+      ...(analyzer === null ? {} : { analyzer }),
     });
 
     if (recorder) logger.info(`recorded ${recorder.recordsWritten} messages`);
+    if (analyzer) {
+      const { analyzed, redactions, flags } = analyzer.stats;
+      logger.info(
+        `inspected ${analyzed} results, ${redactions} redacted, ${flags} flagged`,
+      );
+    }
     return outcome.code;
   } catch (error) {
     if (error instanceof ServerLaunchError) {
@@ -300,6 +335,7 @@ async function runCommand({ values, targetArgv, level }: RunContext): Promise<nu
     logger.error("unexpected failure", error);
     return 1;
   } finally {
+    analyzer?.close();
     if (recorder) await recorder.close();
   }
 }

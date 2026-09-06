@@ -2,8 +2,9 @@ import { spawn } from "node:child_process";
 import { constants as osConstants } from "node:os";
 import type { Logger } from "./logging.js";
 import { createObserver } from "./observer.js";
-import { createGate, denialResponse } from "./gate.js";
-import type { JsonRpcId } from "./protocol.js";
+import { createGate, denialResponse, type GateStream } from "./gate.js";
+import { Analyzer, annotateResult, type AnalyzerResult } from "./analyzer.js";
+import type { ClassifiedMessage, JsonRpcId } from "./protocol.js";
 import type { PolicyEngine } from "./policy/engine.js";
 import type { Session } from "./session.js";
 
@@ -31,6 +32,8 @@ export interface ProxyOptions {
   session?: Session;
   /** Omit to observe only. With a policy, calls can be refused. */
   policy?: PolicyRuntime;
+  /** Omit to skip result inspection. With one, results are redacted and flagged. */
+  analyzer?: Analyzer;
 }
 
 export interface ProxyOutcome {
@@ -56,6 +59,102 @@ export class ServerLaunchError extends Error {
     this.command = command;
     this.cause = cause;
   }
+}
+
+/**
+ * Inspects replies on their way to the model.
+ *
+ * Requests travelling this way are the server asking the agent something, and
+ * carry no tool output, so they skip the round trip entirely.
+ */
+function inspectResults(
+  analyzer: Analyzer,
+  session: Session | undefined,
+  logger: Logger,
+): (message: ClassifiedMessage, text: string) => Promise<string | null> {
+  return async (message, text) => {
+    if (message.kind !== "response" && message.kind !== "error") {
+      session?.observe("to-agent", text);
+      return null;
+    }
+
+    const result = await analyzer.analyze(text);
+    if (!result) {
+      session?.observe("to-agent", text);
+      return null;
+    }
+
+    // The log gets the redacted form. Recording the original would make the
+    // audit log the leak it just reported.
+    session?.observe("to-agent", result.redacted ?? text, undefined, outcomeOf(result));
+
+    const secrets = result.findings.filter((finding) => finding.kind === "secret");
+    if (secrets.length > 0) {
+      logger.warn(
+        `redacted ${secrets.length} secret(s) from a tool result: ` +
+          secrets.map((finding) => finding.rule).join(", "),
+      );
+    }
+    if (result.flagged) {
+      logger.warn(
+        `tool result reads as instructions rather than data (score ${result.score}), ` +
+          "wrapping it as untrusted",
+      );
+    }
+
+    if (result.redacted === null && !result.flagged) return null;
+    const redacted = result.redacted ?? text;
+    return result.flagged ? annotateResult(redacted) : redacted;
+  };
+}
+
+function outcomeOf(result: AnalyzerResult) {
+  const secrets = result.findings.filter((finding) => finding.kind === "secret");
+  const signals = result.findings.filter((finding) => finding.kind === "injection");
+
+  return {
+    ...(secrets.length > 0 ? { secrets: secrets.map((finding) => finding.rule) } : {}),
+    ...(result.redacted !== null ? { redacted: true } : {}),
+    ...(signals.length > 0
+      ? { score: result.score, flagged: result.flagged, signals: signals.map((f) => f.rule) }
+      : {}),
+  };
+}
+
+/**
+ * Waits for the outbound side to finish emitting.
+ *
+ * Bounded, because a wedged inspector must not hold shutdown open forever. If
+ * the grace period runs out the tail is given up rather than hanging, and that
+ * is said out loud.
+ */
+function drainOutbound(
+  gate: GateStream | null,
+  graceMs: number,
+  logger: Logger,
+): Promise<void> {
+  // Usually already drained by the time the child reports closed, and "end"
+  // will never fire again, so check the state before waiting on the event.
+  if (!gate || gate.readableEnded) return Promise.resolve();
+
+  return new Promise<void>((resolve) => {
+    let done = false;
+    const finish = (timedOut: boolean): void => {
+      if (done) return;
+      done = true;
+      if (timedOut) {
+        logger.warn(`gave up waiting for in flight inspection after ${graceMs}ms`);
+      }
+      resolve();
+    };
+
+    gate.once("end", () => finish(false));
+    gate.once("close", () => finish(false));
+    gate.once("error", () => finish(false));
+
+    const timer = setTimeout(() => finish(true), graceMs);
+    timer.unref();
+  });
 }
 
 export function runProxy(options: ProxyOptions): Promise<ProxyOutcome> {
@@ -110,17 +209,18 @@ export function runProxy(options: ProxyOptions): Promise<ProxyOutcome> {
       logger.warn("error writing to server input", error);
     });
 
-    // Three wirings, in decreasing order of transparency.
+    // Wirings, in decreasing order of transparency.
     //
-    // Neither session nor policy: the streams are joined directly and
-    // Portcullis never holds a byte.
+    // Nothing enabled: the streams are joined directly and Portcullis never
+    // holds a byte.
     //
-    // Session only: an observer watches each direction and passes the original
-    // bytes straight through, adding no buffering and no latency.
+    // Recording only: an observer watches each direction and passes the
+    // original bytes straight through, adding no buffering and no latency.
     //
-    // Policy: both directions are reassembled into whole messages, because a
-    // call cannot be judged from half of one, and because a denial must be
-    // injected on a message boundary rather than into the middle of one.
+    // Policy or analyzer: that direction is reassembled into whole messages. A
+    // call cannot be judged from half of one, a denial must be inserted on a
+    // message boundary rather than into the middle of one, and a rewritten
+    // result has to replace exactly one message.
     //
     // pipe() throughout rather than data handlers, so backpressure propagates.
     // A large tool result can outrun a slow consumer, and dropped bytes corrupt
@@ -129,19 +229,38 @@ export function runProxy(options: ProxyOptions): Promise<ProxyOutcome> {
     // shutdown message.
     let agentInSink: NodeJS.WritableStream = child.stdin;
 
-    if (options.policy) {
-      const { engine, askFallback } = options.policy;
+    // Server to agent. A gate is needed as soon as anything has to rewrite or
+    // insert a message: a policy inserts denials, an analyzer rewrites results.
+    let outboundGate: GateStream | null = null;
 
-      const outboundGate = createGate({
-        observe: (line) => options.session?.observe("to-agent", line),
-        onError: (error) => logger.warn("could not observe server traffic", error),
+    if (options.policy || options.analyzer) {
+      outboundGate = createGate({
+        ...(options.analyzer
+          ? { transform: inspectResults(options.analyzer, options.session, logger) }
+          : { observe: (line) => options.session?.observe("to-agent", line) }),
+        onError: (error) => logger.warn("could not process server traffic", error),
       });
       child.stdout.pipe(outboundGate);
       outboundGate.pipe(agentOut, { end: false });
+    } else if (options.session) {
+      const outbound = createObserver({
+        onLine: (line) => options.session?.observe("to-agent", line),
+        onError: (error) => logger.warn("could not observe server traffic", error),
+      });
+      child.stdout.pipe(outbound);
+      outbound.pipe(agentOut, { end: false });
+    } else {
+      child.stdout.pipe(agentOut, { end: false });
+    }
+
+    // Agent to server.
+    if (options.policy) {
+      const { engine, askFallback } = options.policy;
+      const replies = outboundGate as GateStream;
 
       const refuse = (id: JsonRpcId, details: Parameters<typeof denialResponse>[1]): void => {
         const line = denialResponse(id, details);
-        outboundGate.inject(line);
+        replies.inject(line);
         options.session?.observe("to-agent", line);
       };
 
@@ -211,20 +330,11 @@ export function runProxy(options: ProxyOptions): Promise<ProxyOutcome> {
         onLine: (line) => options.session?.observe("to-server", line),
         onError: (error) => logger.warn("could not observe agent traffic", error),
       });
-      const outbound = createObserver({
-        onLine: (line) => options.session?.observe("to-agent", line),
-        onError: (error) => logger.warn("could not observe server traffic", error),
-      });
-
       inbound.pipe(child.stdin);
       agentIn.pipe(inbound);
       agentInSink = inbound;
-
-      child.stdout.pipe(outbound);
-      outbound.pipe(agentOut, { end: false });
     } else {
       agentIn.pipe(child.stdin);
-      child.stdout.pipe(agentOut, { end: false });
     }
 
     child.stderr.pipe(agentErr, { end: false });
@@ -275,7 +385,11 @@ export function runProxy(options: ProxyOptions): Promise<ProxyOutcome> {
           ? `server terminated by ${signal} (reporting exit ${outcome.code})`
           : `server exited with code ${outcome.code}`,
       );
-      resolve(outcome);
+
+      // The child can close while replies are still out at the analyzer. Those
+      // are pushed after it exits, so resolving here would let the caller finish
+      // and drop the tail of the conversation.
+      void drainOutbound(outboundGate, shutdownGraceMs, logger).then(() => resolve(outcome));
     });
   });
 }

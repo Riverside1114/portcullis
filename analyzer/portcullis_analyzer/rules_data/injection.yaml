@@ -1,0 +1,86 @@
+# Prompt injection heuristics.
+#
+# These are the opposite of the secret rules. They are low precision by nature,
+# so they never redact and never block. They add a warning around the content
+# and a line in the audit log, and the model is told to treat what follows as
+# data. Destroying a tool result on a heuristic would break far more than it
+# protects.
+#
+# weight: contribution to the score for the message. The engine flags a message
+# once the total crosses the threshold, so one weak signal is not enough but
+# several together are.
+
+version: 1
+kind: injection
+threshold: 5
+
+rules:
+  - id: override-instructions
+    name: Attempts to override earlier instructions
+    weight: 5
+    pattern: '(?i)\b(?:ignore|disregard|forget)\s+(?:all\s+|any\s+|the\s+)?(?:previous|prior|above|earlier|preceding)\s+(?:instruction|prompt|direction|rule|message|context)|\b(?:ignore|disregard|bypass|override)\s+your\s+(?:guideline|instruction|rule|restriction|safety|guardrail)s?\b'
+
+  - id: new-instructions
+    name: Declares new instructions
+    weight: 4
+    pattern: '(?i)(?:^|\n)\s*(?:new|updated|revised|important|urgent)\s+(?:instruction|system\s+prompt|direction)s?\s*[:\-]'
+
+  - id: role-reassignment
+    name: Tries to reassign the model's role
+    weight: 4
+    pattern: '(?i)\byou\s+are\s+(?:now|actually|really)\s+(?:a|an|the)\b'
+
+  - id: unrestricted-framing
+    name: Classic jailbreak framing
+    weight: 3
+    # Deliberately weak alone. Paired with role reassignment it clears the
+    # threshold, which is the shape a real attempt takes, while an onboarding
+    # doc saying "you are now a maintainer" stays below it.
+    pattern: '(?i)\b(?:no|without\s+any|free\s+(?:of|from))\s+(?:restriction|limitation|rule|filter|guideline|guardrail)s?\b|\bdeveloper\s+mode\b|\bDAN\s+mode\b'
+
+  - id: role-markers
+    name: Chat or instruction role markers inside content
+    weight: 3
+    pattern: '(?im)^\s*(?:<\|?(?:system|im_start|endoftext)\|?>|\[/?INST\]|###\s*(?:Instruction|System)|(?:System|Assistant|Human)\s*:)'
+
+  - id: system-prompt-fishing
+    name: Asks for the system prompt or configuration
+    weight: 4
+    pattern: '(?i)\b(?:reveal|print|output|repeat|show|dump)\s+(?:your|the)\s+(?:system\s+prompt|instructions|initial\s+prompt|configuration|rules)'
+
+  - id: exfiltration
+    name: Asks for credentials to be sent somewhere
+    weight: 5
+    pattern: '(?i)\b(?:send|post|upload|exfiltrate|transmit|email|curl|fetch)\b[^\n]{0,60}\b(?:api[_-]?key|token|secret|credential|password|\.env|id_rsa)\b'
+
+  - id: tool-coercion
+    name: Instructs the model to call a tool
+    weight: 3
+    pattern: '(?i)\b(?:you\s+must|immediately|now)\s+(?:call|invoke|run|execute|use)\s+(?:the\s+)?(?:tool|function|command)\b'
+
+  - id: hidden-bidi
+    name: Bidirectional control characters
+    weight: 5
+    # These reorder text visually. Anything using them in a tool result is
+    # hiding something from whoever reads the log.
+    pattern: '[\u202A-\u202E\u2066-\u2069]'
+
+  - id: hidden-zero-width
+    name: Zero width characters used to hide text
+    weight: 2
+    pattern: '[\u200B-\u200D\uFEFF]{3,}'
+
+  - id: private-use-glyphs
+    name: Private use area characters
+    weight: 3
+    pattern: '[\uE000-\uF8FF]{2,}'
+
+  - id: below-the-fold
+    name: Instructions pushed below a wall of whitespace
+    weight: 3
+    pattern: '\n{12,}\s*\S'
+
+  - id: markdown-hidden-comment
+    name: Instructions inside an HTML comment
+    weight: 2
+    pattern: '(?is)<!--(?:(?!-->)[\s\S]){0,400}?\b(?:ignore|instruction|you\s+must|system\s+prompt)\b'

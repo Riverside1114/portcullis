@@ -69,17 +69,17 @@ which need a human.
 - [x] Verdicts surfaced in the dashboard
 - [x] Starter policies in `examples/policies/`
 
-## M5, The analyzer `[~]`
+## M5, The analyzer `[x]`
 
 The Python sidecar. Inspects results on the way back to the model.
 
-- [ ] Sidecar process and local socket protocol, with graceful degradation
-- [ ] Secret detection for API keys, tokens and private keys, with redaction
-- [ ] Prompt-injection heuristics over tool results
-- [ ] Rule pack format so detections can be contributed without touching the core
-- [ ] Test corpus of known-malicious tool results
+- [x] Sidecar process and local socket protocol, with graceful degradation
+- [x] Secret detection for API keys, tokens and private keys, with redaction
+- [x] Prompt-injection heuristics over tool results, scored and annotated
+- [x] Rule pack format so detections can be contributed without touching the core
+- [x] Attack and benign corpora, weighted toward not flagging ordinary prose
 
-## M6, The collector `[ ]`
+## M6, The collector `[~]`
 
 Go daemon for log archives large enough that reading the JSONL directly stops
 being cheap.

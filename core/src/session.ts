@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { classify, correlationKey, type JsonRpcId } from "./protocol.js";
-import type { AuditRecord, Direction, PolicyOutcome, Recorder } from "./recorder.js";
+import type {
+  AuditRecord,
+  Direction,
+  InspectionOutcome,
+  PolicyOutcome,
+  Recorder,
+} from "./recorder.js";
 import type { Logger } from "./logging.js";
 
 interface InflightCall {
@@ -47,15 +53,25 @@ export class Session {
   }
 
   // Never throws. This runs inside a stream carrying live protocol traffic.
-  observe(dir: Direction, line: string, policy?: PolicyOutcome): void {
+  observe(
+    dir: Direction,
+    line: string,
+    policy?: PolicyOutcome,
+    inspection?: InspectionOutcome,
+  ): void {
     try {
-      this.#record(dir, line, policy);
+      this.#record(dir, line, policy, inspection);
     } catch (error) {
       this.#logger.warn("failed to record a message", error);
     }
   }
 
-  #record(dir: Direction, line: string, policy?: PolicyOutcome): void {
+  #record(
+    dir: Direction,
+    line: string,
+    policy?: PolicyOutcome,
+    inspection?: InspectionOutcome,
+  ): void {
     const message = classify(line);
     const seq = (this.#seq += 1);
 
@@ -71,6 +87,7 @@ export class Session {
     };
 
     if (policy) record.policy = policy;
+    if (inspection) record.inspection = inspection;
 
     switch (message.kind) {
       case "request": {

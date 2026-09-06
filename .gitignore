@@ -59,3 +59,8 @@ desktop.ini
 
 # npm pack output
 *.tgz
+
+# ---- Python build output ----
+build/
+dist/
+*.egg-info/

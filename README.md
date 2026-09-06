@@ -172,6 +172,31 @@ deny by rule "no credential files": credential files are off limits
 Full syntax in [docs/policy.md](docs/policy.md), starting points in
 [examples/policies](examples/policies).
 
+## Inspect what comes back
+
+A policy governs what your agent may call. It does nothing about what the tool
+returns, and tool output goes straight into the model's context.
+
+```sh
+pip install -e analyzer
+portcullis-analyzer serve
+```
+
+The proxy finds it and starts inspecting replies:
+
+```
+portcullis:filesystem warn  redacted 2 secret(s) from a tool result: aws-access-key, github-token
+portcullis:filesystem warn  tool result reads as instructions rather than data (score 5), wrapping it as untrusted
+```
+
+Credentials are redacted before the model sees them, including in the audit log.
+Content that reads as instructions rather than data is wrapped so the model is
+told what it is looking at, rather than blocked, because those heuristics are
+fuzzy and destroying a real tool result is worse than flagging it.
+
+Detections are YAML rule packs, so adding one does not mean touching code. See
+[analyzer/README.md](analyzer/README.md).
+
 ## Design rules
 
 These are load-bearing. Everything in the roadmap is checked against them.
@@ -197,8 +222,8 @@ Early, and built in public in layers. See [the roadmap](docs/roadmap.md).
 | `core/` proxy and recorder | TypeScript | working |
 | `core/dashboard/` web UI | HTML, CSS, JS | working |
 | policy engine | TypeScript | working |
-| `analyzer/` detection rules | Python | next |
-| `collector/` log index for large archives | Go | planned |
+| `analyzer/` result inspection | Python | working |
+| `collector/` log index for large archives | Go | next |
 | `desktop/` tray app and live approvals | C# and WPF | planned |
 
 Why several languages? Each layer is a genuinely different job, and the split is
@@ -208,6 +233,7 @@ The core never depends on the others.
 ## Documentation
 
 - [Policy](docs/policy.md), the rule syntax and what the model sees
+- [Analyzer](analyzer/README.md), redaction and injection heuristics
 - [Architecture](docs/architecture.md), how the pieces fit and why
 - [Audit log format](docs/audit-log.md), a stable contract other tools can read
 - [Roadmap](docs/roadmap.md)
